@@ -73,25 +73,30 @@ class ProbedAudioMetadata:
 
 
 def _ffprobe_audio_metadata(path: Path) -> ProbedAudioMetadata:
-    proc = subprocess.run(
-        [
-            "ffprobe",
-            "-v",
-            "error",
-            "-select_streams",
-            "a:0",
-            "-show_entries",
-            "stream=sample_rate,channels",
-            "-show_entries",
-            "format=duration",
-            "-of",
-            "json",
-            str(path),
-        ],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
+    try:
+        proc = subprocess.run(
+            [
+                "ffprobe",
+                "-v",
+                "error",
+                "-select_streams",
+                "a:0",
+                "-show_entries",
+                "stream=sample_rate,channels",
+                "-show_entries",
+                "format=duration",
+                "-of",
+                "json",
+                str(path),
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except FileNotFoundError as exc:
+        raise RuntimeError(
+            "ffprobe was not found on PATH. Install ffmpeg (which provides ffprobe) to use MP3 inputs."
+        ) from exc
     if proc.returncode != 0:
         raise RuntimeError(proc.stderr.strip() or f"ffprobe failed for {path.name}")
     payload = json.loads(proc.stdout or "{}")

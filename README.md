@@ -389,7 +389,7 @@ Manifest settings behavior:
 --apply-manifest-settings
 ```
 
-When this flag is set, FlowMix copies manifest `settings` keys such as `transition_mode`, `profile`, and `vocal_method` onto CLI defaults. **`transition_overrides` do not require this flag** — they are applied whenever present in the manifest.
+When this flag is set, FlowMix copies a fixed allowlist of manifest `settings` keys onto CLI defaults: `transition_mode`, `profile`, `scoring_config`, `vocal_method`, `make_snippets`, `natural_pause_sec`, `search_a_sec`, `search_b_sec`, `max_trim_a_sec`, and `b_cue_max_sec`. Explicit CLI values always win, and any other settings key (such as `output`) is ignored with a warning. **`transition_overrides` do not require this flag** — they are applied whenever present in the manifest.
 
 ### Candidate-mode override
 

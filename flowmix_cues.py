@@ -52,7 +52,6 @@ import argparse
 import csv
 import logging
 import math
-import os
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -281,6 +280,19 @@ def resolve_audio_path(audio_path: str, manifest_path: Path, audio_root: Optiona
 # Cue analysis
 # -----------------------------
 
+def median_step_sec(times: np.ndarray, default: float = 0.5) -> float:
+    """Median frame spacing in seconds; falls back for degenerate short tracks.
+
+    np.median(np.diff(times)) is NaN for a single-frame track, which would
+    crash the int(round(...)) window-size math downstream.
+    """
+    if len(times) > 1:
+        step = float(np.median(np.diff(times)))
+        if math.isfinite(step) and step > 0:
+            return step
+    return default
+
+
 def moving_average(x: np.ndarray, n: int) -> np.ndarray:
     n = max(1, int(n))
     if n == 1:
@@ -358,7 +370,7 @@ def first_sustained_energy_lift(
     threshold = baseline + 0.45 * (high - baseline)
 
     # Require a small sustained region above threshold.
-    frame_step = float(np.median(np.diff(times))) if len(times) > 1 else 0.5
+    frame_step = median_step_sec(times)
     sustain_frames = max(3, int(round(4.0 / max(frame_step, 0.1))))
 
     mask = (times >= search_start) & (times <= search_end)
@@ -407,13 +419,14 @@ def analyze_track(audio_file: Path, bpm_hint: Optional[float]) -> Tuple[float, O
     # Energy.
     rms = librosa.feature.rms(y=y, frame_length=2048, hop_length=hop_length)[0]
     times = librosa.frames_to_time(np.arange(len(rms)), sr=sr, hop_length=hop_length)
+    frame_step = median_step_sec(times)
     rms_db = librosa.power_to_db(np.maximum(rms, 1e-10) ** 2, ref=np.max)
-    energy = moving_average(rms_db, max(3, int(round(2.5 / np.median(np.diff(times))))))
+    energy = moving_average(rms_db, max(3, int(round(2.5 / frame_step))))
 
     # Onset / rhythmic intensity.
     onset_env = librosa.onset.onset_strength(y=y, sr=sr, hop_length=hop_length)
     onset_times = librosa.frames_to_time(np.arange(len(onset_env)), sr=sr, hop_length=hop_length)
-    onset_smooth = moving_average(onset_env, max(3, int(round(2.0 / np.median(np.diff(onset_times))))))
+    onset_smooth = moving_average(onset_env, max(3, int(round(2.0 / median_step_sec(onset_times)))))
 
     # Align onset score to energy frames if needed.
     onset_interp = np.interp(times, onset_times, onset_smooth)
@@ -421,7 +434,7 @@ def analyze_track(audio_file: Path, bpm_hint: Optional[float]) -> Tuple[float, O
     # Spectral brightness / flux proxy.
     centroid = librosa.feature.spectral_centroid(y=y, sr=sr, hop_length=hop_length)[0]
     centroid = np.interp(times, librosa.frames_to_time(np.arange(len(centroid)), sr=sr, hop_length=hop_length), centroid)
-    centroid_z = robust_z(moving_average(centroid, max(3, int(round(3.0 / np.median(np.diff(times)))))))
+    centroid_z = robust_z(moving_average(centroid, max(3, int(round(3.0 / frame_step)))))
 
     energy_z = robust_z(energy)
     onset_z = robust_z(onset_interp)
@@ -429,7 +442,7 @@ def analyze_track(audio_file: Path, bpm_hint: Optional[float]) -> Tuple[float, O
     # Candidate "drop/peak" score:
     # high loudness + high onset/rhythm + brightness. This is a cue candidate, not truth.
     score = 0.55 * energy_z + 0.35 * onset_z + 0.10 * centroid_z
-    score = moving_average(score, max(3, int(round(1.5 / np.median(np.diff(times))))))
+    score = moving_average(score, max(3, int(round(1.5 / frame_step))))
 
     # BPM detection.
     bpm_detected = None

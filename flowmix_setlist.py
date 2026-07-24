@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import re
 import sys
 from dataclasses import asdict, dataclass
@@ -30,6 +31,36 @@ from flowmix_reports import build_setlist_report, candidate_verdict
 
 APP_VERSION = "1.0.2"
 APP_NAME = f"FlowMix {APP_VERSION} Setlist Builder"
+
+TRANSITION_MODES = (
+    "recommended",
+    "vocal_safe",
+    "beat_aligned",
+    "quick_cut",
+    "smooth",
+    "profile",
+    "vocal_ducked",
+    "long_blend",
+    "natural",
+)
+VOCAL_METHODS = ("heuristic", "demucs", "none")
+
+# Manifest settings that --apply-manifest-settings may copy onto CLI defaults,
+# mapped to their expected type. This is a deliberate allowlist: anything else
+# in the manifest settings object is ignored with a warning, so a manifest can
+# tune the mix but can never redirect CLI-only arguments such as the output path.
+APPLIABLE_MANIFEST_SETTINGS: Dict[str, type] = {
+    "transition_mode": str,
+    "profile": str,
+    "scoring_config": str,
+    "vocal_method": str,
+    "make_snippets": bool,
+    "natural_pause_sec": float,
+    "search_a_sec": float,
+    "search_b_sec": float,
+    "max_trim_a_sec": float,
+    "b_cue_max_sec": float,
+}
 
 
 @dataclass
@@ -66,6 +97,56 @@ def sanitize_filename(text: str, max_len: int = 50) -> str:
     return (text[:max_len] or "track").strip("._-") or "track"
 
 
+def coerce_manifest_setting(key: str, value: object, kind: type) -> object:
+    """Validate and convert one manifest setting to the type its CLI flag expects."""
+    if kind is bool:
+        if not isinstance(value, bool):
+            raise ValueError(f"Manifest setting {key!r} must be true or false. Got: {value!r}")
+        return value
+    if kind is float:
+        if isinstance(value, bool) or not isinstance(value, (int, float, str)):
+            raise ValueError(f"Manifest setting {key!r} must be a number. Got: {value!r}")
+        try:
+            result = float(value)
+        except ValueError as exc:
+            raise ValueError(f"Manifest setting {key!r} must be a number. Got: {value!r}") from exc
+        if not math.isfinite(result):
+            raise ValueError(f"Manifest setting {key!r} must be a finite number. Got: {value!r}")
+        return result
+    if not isinstance(value, str):
+        raise ValueError(f"Manifest setting {key!r} must be a string. Got: {value!r}")
+    return value
+
+
+def apply_manifest_settings(args, manifest_settings: dict[str, object], parser: argparse.ArgumentParser) -> None:
+    """Copy allowlisted manifest settings onto CLI defaults.
+
+    Explicit CLI values always win over the manifest. `transition_overrides`
+    is skipped here because the planner always honors it directly.
+    """
+    for key, value in manifest_settings.items():
+        if key == "transition_overrides":
+            continue
+        kind = APPLIABLE_MANIFEST_SETTINGS.get(key)
+        if kind is None:
+            print(f"Warning: ignoring unsupported manifest setting {key!r}.", file=sys.stderr)
+            continue
+        if value is None or getattr(args, key) not in (None, parser.get_default(key)):
+            continue
+        setattr(args, key, coerce_manifest_setting(key, value, kind))
+
+    if args.transition_mode not in TRANSITION_MODES:
+        raise ValueError(
+            f"Manifest transition_mode must be one of: {', '.join(TRANSITION_MODES)}. Got: {args.transition_mode!r}"
+        )
+    if args.vocal_method not in VOCAL_METHODS:
+        raise ValueError(
+            f"Manifest vocal_method must be one of: {', '.join(VOCAL_METHODS)}. Got: {args.vocal_method!r}"
+        )
+    if args.vocal_method == "none":
+        args.vocal_method = "heuristic"
+
+
 def load_setlist(path: str) -> Tuple[List[TrackSpec], dict[str, object]]:
     """Load a JSON manifest or a simple newline-delimited text setlist."""
     p = Path(path).expanduser()
@@ -78,7 +159,10 @@ def load_setlist(path: str) -> Tuple[List[TrackSpec], dict[str, object]]:
         data = json.loads(p.read_text(encoding="utf-8"))
         if isinstance(data, dict):
             tracks_raw = data.get("tracks")
-            settings = data.get("settings", {}) or {}
+            settings_raw = data.get("settings") or {}
+            if not isinstance(settings_raw, dict):
+                raise ValueError("Setlist 'settings' must be a JSON object.")
+            settings = settings_raw
         elif isinstance(data, list):
             tracks_raw = data
         else:
@@ -105,11 +189,15 @@ def load_setlist(path: str) -> Tuple[List[TrackSpec], dict[str, object]]:
             key = None
         elif isinstance(item, dict):
             raw_path = item.get("path") or item.get("file")
-            if not raw_path:
-                raise ValueError(f"Track #{i} is missing a path/file field.")
+            if not raw_path or not isinstance(raw_path, str):
+                raise ValueError(f"Track #{i} is missing a path/file field or it is not a string.")
             title = item.get("title") or safe_title_from_path(raw_path)
             bpm = item.get("bpm")
+            if bpm is not None and (isinstance(bpm, bool) or not isinstance(bpm, (int, float))):
+                raise ValueError(f"Track #{i} bpm must be a number. Got: {bpm!r}")
             key = item.get("key")
+            if key is not None and not isinstance(key, str):
+                raise ValueError(f"Track #{i} key must be a string. Got: {key!r}")
         else:
             raise ValueError(f"Track #{i} must be a path string or an object.")
 
@@ -122,16 +210,14 @@ def load_setlist(path: str) -> Tuple[List[TrackSpec], dict[str, object]]:
 
 
 def build_continuous_mix(args) -> None:
+    tracks, manifest_settings = load_setlist(args.setlist)
+    if args.apply_manifest_settings:
+        apply_manifest_settings(args, manifest_settings, build_parser())
     if args.transition_mode != "profile" and (args.scoring_config is not None or args.profile != "edm"):
         print(
             "Warning: --profile/--scoring-config are only used with --transition-mode profile; ignoring profile settings for this run.",
             file=sys.stderr,
         )
-    tracks, manifest_settings = load_setlist(args.setlist)
-    if args.apply_manifest_settings:
-        for key, value in manifest_settings.items():
-            if hasattr(args, key) and getattr(args, key) in (None, build_parser().get_default(key)):
-                setattr(args, key, value)
 
     out_path = validate_audio_output(args.output)
     base = out_path.with_suffix("")
@@ -259,7 +345,9 @@ def build_continuous_mix(args) -> None:
             )
             snippet_outputs.append(str(snip_path))
 
-    report_path = base.with_suffix(".flowmix_1_0_0_setlist_report.json")
+    # Append rather than with_suffix(): a dotted output stem such as
+    # "mix v1.2.wav" must not lose part of its name to suffix replacement.
+    report_path = base.with_name(base.name + ".flowmix_1_0_0_setlist_report.json")
     report = build_setlist_report(
         app_name=APP_NAME,
         transition_mode=args.transition_mode,
@@ -292,7 +380,7 @@ def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description="FlowMix 1.0.2 setlist builder")
     p.add_argument("setlist", help="JSON manifest or text file with one audio path per line")
     p.add_argument("-o", "--output", default="flowmix_setlist_1_0_0.wav", help="Output continuous mix (.wav or .mp3; MP3 exports at 320 kbps)")
-    p.add_argument("--transition-mode", default="recommended", choices=["recommended", "vocal_safe", "beat_aligned", "quick_cut", "smooth", "profile", "vocal_ducked", "long_blend", "natural"], help="Which transition style to select at each junction")
+    p.add_argument("--transition-mode", default="recommended", choices=list(TRANSITION_MODES), help="Which transition style to select at each junction")
     p.add_argument(
         "--natural-pause-sec",
         type=float,
@@ -302,7 +390,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--make-snippets", action="store_true", help="Export transition audition snippets from the final continuous mix")
     p.add_argument("--profile", default="edm", help="Built-in scoring profile for --transition-mode profile: edm, vocal_trance, lounge, jazz, heart, cinematic")
     p.add_argument("--scoring-config", default=None, help="Path to a TOML scoring profile; overrides --profile")
-    p.add_argument("--vocal-method", default="heuristic", choices=["heuristic", "demucs", "none"], help="Vocal analysis method; 'none' maps to heuristic")
+    p.add_argument("--vocal-method", default="heuristic", choices=list(VOCAL_METHODS), help="Vocal analysis method; 'none' maps to heuristic")
     p.add_argument("--no-mps", action="store_true", help="Disable Apple Silicon MPS for Demucs")
     p.add_argument("--search-a-sec", type=float, default=35.0, help="Seconds of each outgoing track outro to analyze")
     p.add_argument("--search-b-sec", type=float, default=35.0, help="Seconds of each incoming track intro to analyze")

@@ -152,12 +152,48 @@ def coerce_float_override(item: dict[str, object], key: str, fallback: float) ->
     value = item.get(key)
     if value is None:
         return fallback
-    if not isinstance(value, (int, float, str)):
+    if isinstance(value, bool) or not isinstance(value, (int, float, str)):
         raise ValueError(f"Invalid manual transition override value for {key}: {value!r}")
     try:
-        return float(value)
+        result = float(value)
     except (TypeError, ValueError) as exc:
         raise ValueError(f"Invalid manual transition override value for {key}: {value!r}") from exc
+    if not math.isfinite(result):
+        raise ValueError(f"Manual transition override value for {key} must be finite. Got: {value!r}")
+    return result
+
+
+def _validate_override_source_bounds(
+    kind: str,
+    transition_index: int,
+    a_fade_start: float,
+    a_cut: float,
+    b_cue: float,
+    track_a: AudioAnalysis,
+    track_b: AudioAnalysis,
+) -> None:
+    """Reject override timing outside the source tracks.
+
+    Negative cue/fade values are especially dangerous: pydub interprets a
+    negative slice start as "from the end of the segment," so a typo like
+    b_cue_sec=-3 would silently render the wrong part of Track B.
+    """
+    if a_fade_start < 0:
+        raise ValueError(
+            f"Transition #{transition_index} {kind} override a_fade_start_sec must be >= 0. Got {a_fade_start}."
+        )
+    if b_cue < 0:
+        raise ValueError(f"Transition #{transition_index} {kind} override b_cue_sec must be >= 0. Got {b_cue}.")
+    if a_cut > track_a.duration_sec + 0.05:
+        raise ValueError(
+            f"Transition #{transition_index} {kind} override a_cut_sec is beyond the end of Track A "
+            f"({track_a.duration_sec:.3f}s). Got {a_cut}."
+        )
+    if b_cue >= track_b.duration_sec:
+        raise ValueError(
+            f"Transition #{transition_index} {kind} override b_cue_sec is beyond the end of Track B "
+            f"({track_b.duration_sec:.3f}s). Got {b_cue}."
+        )
 
 
 def _override_mode(item: dict[str, object]) -> str:
@@ -209,12 +245,13 @@ def apply_manual_transition_override(
             f"Transition #{transition_index} manual override requires a_cut_sec > a_fade_start_sec. "
             f"Got {a_cut} <= {a_fade_start}."
         )
+    _validate_override_source_bounds("manual", transition_index, a_fade_start, a_cut, b_cue, track_a, track_b)
 
     rescored = score_candidate(track_a, track_b, a_cut, b_cue, overlap, "candidate")
-    trim_a_tail_sec = max(0.0, track_a.duration_sec - a_cut)
-    trim_override = item.get("trim_a_tail_sec")
-    if isinstance(trim_override, (int, float, str)):
-        trim_a_tail_sec = max(0.0, float(trim_override))
+    trim_a_tail_sec = max(
+        0.0,
+        coerce_float_override(item, "trim_a_tail_sec", max(0.0, track_a.duration_sec - a_cut)),
+    )
 
     notes = list(rescored.notes) + [
         "manual transition override",
@@ -273,8 +310,7 @@ def apply_handoff_transition_override(
             f"Transition #{transition_index} handoff override requires a_cut_sec > a_fade_start_sec. "
             f"Got {a_cut} <= {a_fade_start}."
         )
-    if b_cue < 0:
-        raise ValueError(f"Transition #{transition_index} handoff override b_cue_sec must be >= 0. Got {b_cue}.")
+    _validate_override_source_bounds("handoff", transition_index, a_fade_start, a_cut, b_cue, track_a, track_b)
     if not 0.05 <= takeover_overlap <= 1.0:
         raise ValueError(
             f"Transition #{transition_index} handoff override takeover_overlap_sec must be between 0.05 and 1.0. "
