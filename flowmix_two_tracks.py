@@ -147,8 +147,10 @@ def run(args) -> None:
 
     outputs = []
     for cand in candidates:
-        out = base.with_name(base.name + f"_{cand.name}").with_suffix(fmt_suffix)
-        snippet = base.with_name(base.name + f"_{cand.name}_snippet").with_suffix(fmt_suffix) if args.make_snippets else None
+        # Build names by concatenation, not with_suffix(): a dotted output stem
+        # such as "mix v1.2.wav" must not lose part of its name to suffix replacement.
+        out = base.with_name(f"{base.name}_{cand.name}{fmt_suffix}")
+        snippet = base.with_name(f"{base.name}_{cand.name}_snippet{fmt_suffix}") if args.make_snippets else None
         print(
             f"Rendering {cand.name}: score={cand.score:.3f}, new song starts at {format_timestamp(cand.a_fade_start_sec)} "
             f"({cand.a_fade_start_sec:.2f}s), A fade {cand.a_fade_start_sec:.2f}s -> cut {cand.a_cut_sec:.2f}s, "
@@ -182,7 +184,7 @@ def run(args) -> None:
         profile=getattr(scoring_profile, "name", None),
         scoring_config=args.scoring_config,
     )
-    report_path = base.with_suffix(".1_0_0_wav_mix_report.json")
+    report_path = base.with_name(base.name + ".1_0_0_wav_mix_report.json")
     report_path.write_text(json.dumps(report, indent=2), encoding="utf-8")
     print(f"Wrote 1.0.0 WAV ranked report: {report_path}")
 

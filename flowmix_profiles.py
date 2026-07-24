@@ -10,9 +10,15 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, Optional
+import re
 import sys
 
 import tomllib  # Python 3.11+
+
+# Built-in profile names are plain identifiers. Anything else (path separators,
+# "..", etc.) must go through an explicit --scoring-config path instead, so a
+# profile name from a manifest can never traverse outside the configs dirs.
+_PROFILE_NAME_RE = re.compile(r"^[A-Za-z0-9_-]+$")
 
 
 @dataclass
@@ -47,6 +53,11 @@ def builtin_profile_path(name: str) -> Path:
     checks both locations so `pip install .` is usable without requiring users
     to copy config files manually.
     """
+    if not _PROFILE_NAME_RE.match(name):
+        raise ValueError(
+            f"Invalid profile name: {name!r}. Built-in profile names may only contain letters, digits, "
+            "hyphens, and underscores; use --scoring-config to load a profile from a TOML path."
+        )
     filename = f"{name}.toml"
     candidates = [
         Path(__file__).resolve().parent / "configs" / filename,

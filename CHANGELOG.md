@@ -4,6 +4,19 @@ All notable changes to FlowMix will be documented in this file.
 
 ## Unreleased
 
+### Security
+
+- `--apply-manifest-settings` now applies only an allowlist of tuning keys (`transition_mode`, `profile`, `scoring_config`, `vocal_method`, `make_snippets`, `natural_pause_sec`, `search_a_sec`, `search_b_sec`, `max_trim_a_sec`, `b_cue_max_sec`). A manifest can no longer override CLI-only arguments such as the output path; unsupported keys are ignored with a warning.
+- Built-in profile names are restricted to letters, digits, hyphens, and underscores, so a manifest-supplied `profile` value cannot traverse outside the bundled `configs/` directories. Custom profile files still load via `--scoring-config`.
+
+### Fixed
+
+- Manual and handoff transition overrides now reject non-finite (`NaN`/`Infinity`) values, negative `a_fade_start_sec`/`b_cue_sec`, and timing beyond either source track. A negative `b_cue_sec` previously sliced from the *end* of Track B and silently rendered the wrong audio.
+- Manifest settings and track fields (`bpm`, `key`, `path`, `settings`) are validated with clear error messages instead of failing deep inside planning or rendering.
+- Output stems containing dots (for example `-o "mix v1.2.wav"`) no longer lose part of their name in candidate, snippet, and report filenames.
+- `flowmix_cues.py` no longer crashes on degenerate, extremely short tracks when computing analysis frame spacing.
+- Missing `ffprobe` now reports an actionable "install ffmpeg" error instead of a raw `FileNotFoundError`.
+
 ## 1.0.2 - 2026-07-02
 
 ### Added
