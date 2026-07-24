@@ -494,6 +494,8 @@ Manual override fields:
 | `overlap_sec`      | Length of the crossfade/overlap in seconds             |
 | `b_gain_db`        | Gain applied to Track B during the transition          |
 
+Validation keeps manual overrides inside the source material: all values must be finite numbers, `a_fade_start_sec` and `b_cue_sec` must be >= 0, `a_cut_sec` must be greater than `a_fade_start_sec` and within Track A, `b_cue_sec` must be within Track B, and `overlap_sec` must be > 0. FlowMix rejects the manifest with a clear error rather than rendering from the wrong part of a track.
+
 Manual overrides are especially helpful when a long crossfade causes a perceptual “switch forward, then switch back” effect. In that case, forcing a shorter overlap and a deeper Track B cue can sound cleaner than the technically highest-scoring candidate.
 
 ### Handoff override
@@ -534,7 +536,7 @@ Handoff fields:
 | `b_entry_gain_db`      | Gain applied to Track B entry                                 |
 | `b_fade_in_sec`        | Track B fade-in duration; may continue after Track A is gone  |
 
-Validation keeps handoffs short and intentional: `takeover_overlap_sec` must be 0.05-1.0 seconds, `b_fade_in_sec` must be 0.1-4.0 seconds and at least the takeover overlap, and `b_entry_gain_db` must be between -6.0 and +3.0 dB.
+Validation keeps handoffs short and intentional: `takeover_overlap_sec` must be 0.05-1.0 seconds, `b_fade_in_sec` must be 0.1-4.0 seconds and at least the takeover overlap, and `b_entry_gain_db` must be between -6.0 and +3.0 dB. As with manual overrides, all values must be finite, `a_fade_start_sec` and `b_cue_sec` must be >= 0, and the timing must fall within the source tracks.
 
 ### Example setlist command with overrides
 
@@ -642,6 +644,8 @@ Profile search bounds are intentionally profile-driven. For example, `vocal_tran
 
 To change those behaviors, edit the TOML file or pass a custom profile with `--scoring-config`.
 
+Built-in profile names passed to `--profile` (or via manifest settings) may only contain letters, digits, hyphens, and underscores. To load a profile from an arbitrary file path, use `--scoring-config` instead.
+
 ## Setlist manifest format
 
 Each `path` may point to a WAV or MP3 file. Mixed formats are fine when decode parameters match.
@@ -670,7 +674,7 @@ Each `path` may point to a WAV or MP3 file. Mixed formats are fine when decode p
 
 Relative paths are resolved relative to the manifest file. `~` paths are expanded.
 
-Other manifest `settings` keys (`transition_mode`, `profile`, `vocal_method`, and so on) apply only when you pass `--apply-manifest-settings`. Without it, CLI arguments control those defaults; **`transition_overrides` still apply** as described in [Per-transition overrides](#per-transition-overrides).
+Other manifest `settings` keys apply only when you pass `--apply-manifest-settings`, and only keys on the supported allowlist are copied (see [Per-transition overrides](#per-transition-overrides) for the full list); unsupported keys are ignored with a warning. Without the flag, CLI arguments control those defaults; **`transition_overrides` still apply** as described in [Per-transition overrides](#per-transition-overrides).
 
 ## Audio format policy
 
