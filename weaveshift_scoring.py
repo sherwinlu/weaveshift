@@ -1,4 +1,4 @@
-"""Candidate search and scoring for FlowMix transitions."""
+"""Candidate search and scoring for WeaveShift transitions."""
 from __future__ import annotations
 
 import copy
@@ -8,8 +8,8 @@ from typing import List, Optional, Sequence, Tuple
 
 import numpy as np
 
-from flowmix_profiles import ScoringProfile
-from flowmix_audio import (
+from weaveshift_profiles import ScoringProfile
+from weaveshift_audio import (
     AudioAnalysis,
     TransitionCandidate,
     OVERLAP_LENGTHS,
@@ -451,7 +451,7 @@ def candidate_too_close(c: TransitionCandidate, selected: Sequence[TransitionCan
 def profile_search_parameters(max_trim_a_sec: float, b_cue_max_sec: float, scoring_profile: Optional[ScoringProfile] = None) -> Tuple[float, float, List[float], float]:
     """Return candidate-generation bounds for the active scoring profile.
 
-    FlowMix profiles are not just post-hoc ranking weights. In profile mode,
+    WeaveShift profiles are not just post-hoc ranking weights. In profile mode,
     the profile's limits and preferred overlap range also shape the candidate
     search space so a profile such as vocal_trance can actually search deeper
     Track B cue points, while heart/jazz profiles can restrict tail trimming.

@@ -9,16 +9,16 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-import flowmix_plan
-import flowmix_setlist
-from flowmix_audio import AudioAnalysis, TransitionCandidate
-from flowmix_plan import (
+import weaveshift_plan
+import weaveshift_setlist
+from weaveshift_audio import AudioAnalysis, TransitionCandidate
+from weaveshift_plan import (
     apply_handoff_transition_override,
     apply_manual_transition_override,
     coerce_float_override,
 )
-from flowmix_profiles import builtin_profile_path
-from flowmix_setlist import apply_manifest_settings, build_parser, load_setlist
+from weaveshift_profiles import builtin_profile_path
+from weaveshift_setlist import apply_manifest_settings, build_parser, load_setlist
 from tests.audio_helpers import write_stereo_wav
 
 
@@ -76,7 +76,7 @@ def parsed_args(*extra: str):
 def test_manifest_cannot_override_cli_only_arguments(capsys):
     args = parsed_args()
     apply_manifest_settings(args, {"output": "elsewhere.wav", "setlist": "other.json"}, build_parser())
-    assert args.output == "flowmix_setlist_1_0_0.wav"
+    assert args.output == "weaveshift_setlist_1_0_0.wav"
     assert args.setlist == "setlist.json"
     err = capsys.readouterr().err
     assert "ignoring unsupported manifest setting 'output'" in err
@@ -160,7 +160,7 @@ def test_build_continuous_mix_ignores_manifest_output_redirect(tmp_path, monkeyp
         apply_manifest_settings=True,
     )
 
-    flowmix_setlist.build_continuous_mix(args)
+    weaveshift_setlist.build_continuous_mix(args)
 
     assert out.exists()
     assert not redirected.exists()
@@ -284,7 +284,7 @@ def test_dotted_output_stem_keeps_full_report_name(tmp_path, monkeypatch):
         apply_manifest_settings=False,
     )
 
-    flowmix_setlist.build_continuous_mix(args)
+    weaveshift_setlist.build_continuous_mix(args)
 
     assert out.exists()
-    assert (tmp_path / "mix v1.2.flowmix_1_0_0_setlist_report.json").exists()
+    assert (tmp_path / "mix v1.2.weaveshift_1_0_0_setlist_report.json").exists()

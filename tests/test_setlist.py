@@ -3,7 +3,7 @@ import json
 import numpy as np
 import soundfile as sf
 
-from flowmix_setlist import load_setlist, sanitize_filename
+from weaveshift_setlist import load_setlist, sanitize_filename
 
 
 def write_wav(path: Path, sr=48000, subtype="PCM_16", channels=2):
@@ -51,7 +51,7 @@ def test_sanitize_filename_removes_problem_characters():
 
 
 def test_all_builtin_scoring_profiles_load():
-    from flowmix_profiles import load_scoring_profile
+    from weaveshift_profiles import load_scoring_profile
 
     for profile_name in ["edm", "vocal_trance", "vocal_trance_strict", "lounge", "jazz", "heart", "cinematic"]:
         profile = load_scoring_profile(profile_name)

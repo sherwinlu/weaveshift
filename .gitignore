@@ -26,5 +26,5 @@ venv/
 .DS_Store
 .idea/
 .vscode/
-.flowmix_demucs_cache/
+.weaveshift_demucs_cache/
 output/

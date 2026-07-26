@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""FlowMix two-track CLI and backward-compatible public facade."""
+"""WeaveShift two-track CLI and backward-compatible public facade."""
 from __future__ import annotations
 
 import argparse
@@ -11,8 +11,8 @@ from typing import Any, Dict, List, Optional, cast
 
 from pydub import AudioSegment
 
-from flowmix_profiles import load_scoring_profile
-from flowmix_audio import (
+from weaveshift_profiles import load_scoring_profile
+from weaveshift_audio import (
     AudioAnalysis,
     LOSSLESS_WAV_SUBTYPES,
     MAX_OVERLAP_SEC,
@@ -53,7 +53,7 @@ from flowmix_audio import (
     vocal_segments_heuristic,
     wav_info,
 )
-from flowmix_scoring import (
+from weaveshift_scoring import (
     build_candidate_times,
     candidate_too_close,
     choose_candidates,
@@ -63,7 +63,7 @@ from flowmix_scoring import (
     score_candidate,
     smooth_candidate_score,
 )
-from flowmix_rendering import (
+from weaveshift_rendering import (
     SUBTYPE_TO_WAV_CODEC,
     apply_gain_ramp,
     apply_soft_duck,
@@ -72,8 +72,8 @@ from flowmix_rendering import (
     export_wav_matching_subtype,
     render_candidate,
 )
-from flowmix_plan import plan_two_track_mix
-from flowmix_reports import (
+from weaveshift_plan import plan_two_track_mix
+from weaveshift_reports import (
     build_two_track_report,
     candidate_verdict,
     ranked_candidate_summary,
@@ -81,7 +81,7 @@ from flowmix_reports import (
 )
 
 APP_VERSION = "1.0.2"
-APP_NAME = f"FlowMix {APP_VERSION}"
+APP_NAME = f"WeaveShift {APP_VERSION}"
 
 
 def run(args) -> None:
@@ -209,14 +209,14 @@ def print_rankings(ranked: list[dict[str, Any]], outputs_by_name: dict[str, dict
 
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
-        description="FlowMix 1.0.2: two-track mixing with ranked transition recommendations"
+        description="WeaveShift 1.0.2: two-track mixing with ranked transition recommendations"
     )
     p.add_argument("track_a", help="Outgoing Track A audio file (.wav or .mp3)")
     p.add_argument("track_b", help="Incoming Track B audio file (.wav or .mp3)")
     p.add_argument(
         "-o",
         "--output",
-        default="flowmix_1_0_0.wav",
+        default="weaveshift_1_0_0.wav",
         help="Output base path (.wav or .mp3; MP3 exports at 320 kbps). Candidate name is appended.",
     )
     p.add_argument("--mode", choices=["all", "vocal_safe", "beat_aligned", "quick_cut", "smooth", "profile", "vocal_ducked", "long_blend"], default="all", help="Which candidate(s) to render")

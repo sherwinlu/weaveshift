@@ -4,8 +4,8 @@ import numpy as np
 import soundfile as sf
 from pydub import AudioSegment
 
-from flowmix_profiles import ScoringProfile
-from flowmix_two_tracks import (
+from weaveshift_profiles import ScoringProfile
+from weaveshift_two_tracks import (
     AudioAnalysis,
     TransitionCandidate,
     VocalSegment,

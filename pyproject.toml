@@ -3,7 +3,7 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "flowmix"
+name = "weaveshift"
 version = "1.0.2"
 description = "Profile-driven continuous music mix engine for WAV setlists and two-track transitions."
 readme = "README.md"
@@ -49,36 +49,36 @@ dev = [
 
 [tool.basedpyright]
 pythonVersion = "3.11"
-include = ["flowmix_*.py"]
+include = ["weaveshift_*.py"]
 exclude = ["tests/", "examples/"]
 typeCheckingMode = "basic"
 reportMissingTypeStubs = false
 
 [project.urls]
-Homepage = "https://github.com/sherwinlu/flowmix"
-Repository = "https://github.com/sherwinlu/flowmix"
-Issues = "https://github.com/sherwinlu/flowmix/issues"
+Homepage = "https://github.com/sherwinlu/weaveshift"
+Repository = "https://github.com/sherwinlu/weaveshift"
+Issues = "https://github.com/sherwinlu/weaveshift/issues"
 
 [project.scripts]
-flowmix-two-tracks = "flowmix_two_tracks:main"
-flowmix-setlist = "flowmix_setlist:main"
-flowmix-cues = "flowmix_cues:main"
+weaveshift-two-tracks = "weaveshift_two_tracks:main"
+weaveshift-setlist = "weaveshift_setlist:main"
+weaveshift-cues = "weaveshift_cues:main"
 
 [tool.setuptools]
 py-modules = [
-  "flowmix_two_tracks",
-  "flowmix_setlist",
-  "flowmix_profiles",
-  "flowmix_audio",
-  "flowmix_scoring",
-  "flowmix_rendering",
-  "flowmix_reports",
-  "flowmix_plan",
-  "flowmix_cues",
+  "weaveshift_two_tracks",
+  "weaveshift_setlist",
+  "weaveshift_profiles",
+  "weaveshift_audio",
+  "weaveshift_scoring",
+  "weaveshift_rendering",
+  "weaveshift_reports",
+  "weaveshift_plan",
+  "weaveshift_cues",
 ]
 
 [tool.setuptools.data-files]
-"share/flowmix/configs" = [
+"share/weaveshift/configs" = [
   "configs/edm.toml",
   "configs/vocal_trance.toml",
   "configs/vocal_trance_strict.toml",
@@ -91,4 +91,4 @@ py-modules = [
 [tool.pytest.ini_options]
 pythonpath = ["."]
 testpaths = ["tests"]
-addopts = "--cov=flowmix_audio --cov=flowmix_scoring --cov=flowmix_rendering --cov=flowmix_reports --cov=flowmix_plan --cov=flowmix_profiles --cov-report=term-missing:skip-covered --cov-fail-under=70"
+addopts = "--cov=weaveshift_audio --cov=weaveshift_scoring --cov=weaveshift_rendering --cov=weaveshift_reports --cov=weaveshift_plan --cov=weaveshift_profiles --cov-report=term-missing:skip-covered --cov-fail-under=70"

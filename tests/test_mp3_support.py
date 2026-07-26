@@ -4,7 +4,7 @@ import pytest
 import soundfile as sf
 from pydub import AudioSegment
 
-from flowmix_audio import (
+from weaveshift_audio import (
     analyze_audio,
     audio_info,
     load_audio_segment,
@@ -15,8 +15,8 @@ from flowmix_audio import (
     validate_audio_pair_compatibility,
     validate_loaded_segment_parity,
 )
-from flowmix_plan import TrackSpec, validate_setlist_formats
-from flowmix_rendering import export_audio
+from weaveshift_plan import TrackSpec, validate_setlist_formats
+from weaveshift_rendering import export_audio
 from tests.audio_helpers import write_stereo_mp3, write_stereo_wav
 
 
@@ -101,7 +101,7 @@ def test_two_track_cli_writes_mp3_output(tmp_path):
     result = subprocess.run(
         [
             sys.executable,
-            "flowmix_two_tracks.py",
+            "weaveshift_two_tracks.py",
             str(a),
             str(b),
             "-o",
@@ -149,7 +149,7 @@ def test_export_audio_mp3_roundtrip(tmp_path):
 
 
 def test_export_audio_wav_still_preserves_subtype(tmp_path):
-    from flowmix_rendering import export_wav_matching_subtype
+    from weaveshift_rendering import export_wav_matching_subtype
 
     src = write_stereo_wav(tmp_path / "src.wav", subtype="PCM_24")
     seg = AudioSegment.from_file(str(src), format="wav")

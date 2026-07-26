@@ -1,12 +1,12 @@
-# Contributing to FlowMix
+# Contributing to WeaveShift
 
-Thank you for your interest in FlowMix.
+Thank you for your interest in WeaveShift.
 
 ## Development setup
 
 ```bash
-git clone https://github.com/sherwinlu/flowmix.git
-cd flowmix
+git clone https://github.com/sherwinlu/weaveshift.git
+cd weaveshift
 python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install --upgrade pip

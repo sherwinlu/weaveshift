@@ -1,13 +1,13 @@
 import numpy as np
 
-from flowmix_audio import AudioAnalysis, VocalSegment
-from flowmix_rendering import build_transition_audio, render_candidate, render_transition_tail
-from flowmix_reports import (
+from weaveshift_audio import AudioAnalysis, VocalSegment
+from weaveshift_rendering import build_transition_audio, render_candidate, render_transition_tail
+from weaveshift_reports import (
     build_two_track_report,
     validate_report_schema,
 )
-from flowmix_scoring import DEFAULT_TECHNICAL_SCORING, TechnicalScoringConfig, score_candidate
-from flowmix_two_tracks import TransitionCandidate, ranked_candidate_summary
+from weaveshift_scoring import DEFAULT_TECHNICAL_SCORING, TechnicalScoringConfig, score_candidate
+from weaveshift_two_tracks import TransitionCandidate, ranked_candidate_summary
 
 
 def analysis(role: str, *, duration=30.0, beats=None, vocals=None, bpm=128.0, camelot="12B", energy_db=-14.0):
@@ -84,7 +84,7 @@ def test_report_schema_validation_accepts_two_track_report():
         ]
     )
     report = build_two_track_report(
-        app_name="FlowMix test",
+        app_name="WeaveShift test",
         mode="all",
         recommended="vocal_safe",
         ranked=ranked,
@@ -101,8 +101,8 @@ def test_report_schema_validation_accepts_two_track_report():
 
 def test_plan_setlist_mix_monkeypatched(tmp_path, monkeypatch):
     import soundfile as sf
-    from flowmix_plan import TrackSpec, plan_setlist_mix
-    import flowmix_plan as plan_mod
+    from weaveshift_plan import TrackSpec, plan_setlist_mix
+    import weaveshift_plan as plan_mod
 
     a = tmp_path / "a.wav"
     b = tmp_path / "b.wav"
@@ -164,8 +164,8 @@ def test_plan_setlist_mix_monkeypatched(tmp_path, monkeypatch):
 
 def test_plan_two_track_mix_monkeypatched(tmp_path, monkeypatch):
     import soundfile as sf
-    from flowmix_plan import plan_two_track_mix
-    import flowmix_plan as plan_mod
+    from weaveshift_plan import plan_two_track_mix
+    import weaveshift_plan as plan_mod
 
     a = tmp_path / "a.wav"
     b = tmp_path / "b.wav"

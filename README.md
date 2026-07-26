@@ -1,10 +1,10 @@
-![tests](https://github.com/sherwinlu/flowmix/actions/workflows/tests.yml/badge.svg)
+![tests](https://github.com/sherwinlu/weaveshift/actions/workflows/tests.yml/badge.svg)
 
-# FlowMix
+# WeaveShift
 
 Profile-driven continuous music mix engine for full-mix audio (WAV or MP3).
 
-FlowMix can render auditionable two-track transitions or build a full continuous setlist mix from an ordered manifest. It is designed for people who want repeatable, explainable, audio-aware transitions without manually editing every handoff.
+WeaveShift can render auditionable two-track transitions or build a full continuous setlist mix from an ordered manifest. It is designed for people who want repeatable, explainable, audio-aware transitions without manually editing every handoff.
 
 The same engine can be tuned for EDM/workout mixes, vocal trance, lounge/background journeys, jazz/blues sequencing, cinematic background music, or emotional love/heartbreak sets.
 
@@ -24,8 +24,8 @@ The same engine can be tuned for EDM/workout mixes, vocal trance, lounge/backgro
 ## Quick start
 
 ```bash
-git clone https://github.com/sherwinlu/flowmix.git
-cd flowmix
+git clone https://github.com/sherwinlu/weaveshift.git
+cd weaveshift
 
 python -m venv .venv
 source .venv/bin/activate
@@ -43,8 +43,8 @@ python examples/generate_fixtures.py
 Run a demo setlist mix (uses generated fixtures under `examples/fixtures/`):
 
 ```bash
-python flowmix_setlist.py examples/setlist_example.json \
-  -o output/flowmix_demo.wav \
+python weaveshift_setlist.py examples/setlist_example.json \
+  -o output/weaveshift_demo.wav \
   --apply-manifest-settings \
   --make-snippets
 ```
@@ -52,8 +52,8 @@ python flowmix_setlist.py examples/setlist_example.json \
 Or pass settings on the command line:
 
 ```bash
-python flowmix_setlist.py examples/setlist_example.json \
-  -o output/flowmix_demo.wav \
+python weaveshift_setlist.py examples/setlist_example.json \
+  -o output/weaveshift_demo.wav \
   --transition-mode profile \
   --profile edm \
   --vocal-method heuristic \
@@ -63,15 +63,15 @@ python flowmix_setlist.py examples/setlist_example.json \
 MP3 output uses the same command with a `.mp3` destination:
 
 ```bash
-python flowmix_setlist.py examples/setlist_example.json \
-  -o output/flowmix_demo.mp3 \
+python weaveshift_setlist.py examples/setlist_example.json \
+  -o output/weaveshift_demo.mp3 \
   --apply-manifest-settings
 ```
 
 Run a two-track transition test:
 
 ```bash
-python flowmix_two_tracks.py "Track A.wav" "Track B.mp3" \
+python weaveshift_two_tracks.py "Track A.wav" "Track B.mp3" \
   -o output/transition.wav \
   --mode profile \
   --profile edm \
@@ -93,7 +93,7 @@ For slower final QA with neural vocal separation, use:
 
 ## Requirements
 
-FlowMix is a command-line Python project. It needs:
+WeaveShift is a command-line Python project. It needs:
 
 * Python 3.11 or newer (CI tests 3.11 and 3.12; 3.13+ works when your audio stack supports it).
 * `ffmpeg` available on your command line (required for MP3 input/output and pydub export).
@@ -111,10 +111,10 @@ xcode-select --install
 brew install ffmpeg
 ```
 
-Create a virtual environment and install FlowMix:
+Create a virtual environment and install WeaveShift:
 
 ```bash
-cd flowmix
+cd weaveshift
 python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install --upgrade pip
@@ -156,10 +156,10 @@ winget install Gyan.FFmpeg
 winget install Git.Git
 ```
 
-Open a new PowerShell window so `python` and `ffmpeg` are on PATH. Then install FlowMix:
+Open a new PowerShell window so `python` and `ffmpeg` are on PATH. Then install WeaveShift:
 
 ```powershell
-cd flowmix
+cd weaveshift
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install --upgrade pip
@@ -191,10 +191,10 @@ sudo apt update
 sudo apt install -y python3 python3-venv python3-pip ffmpeg git
 ```
 
-Create a virtual environment and install FlowMix:
+Create a virtual environment and install WeaveShift:
 
 ```bash
-cd flowmix
+cd weaveshift
 python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install --upgrade pip
@@ -213,7 +213,7 @@ python -m pytest
 
 ```bash
 sudo dnf install -y python3 python3-pip ffmpeg git
-cd flowmix
+cd weaveshift
 python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install --upgrade pip
@@ -231,7 +231,7 @@ Check whether Demucs is available:
 python -m demucs.separate --help
 ```
 
-If that command works, FlowMix can use Demucs with:
+If that command works, WeaveShift can use Demucs with:
 
 ```bash
 --vocal-method demucs
@@ -249,7 +249,7 @@ On Python 3.13+ or 3.14+, `torchaudio` may require TorchCodec for saving Demucs 
 python -m pip install torchcodec
 ```
 
-Demucs CLI fallback caches generated vocals under `.flowmix_demucs_cache/`. This can use substantial disk space during final QA runs. It is safe to delete the cache when you no longer need it.
+Demucs CLI fallback caches generated vocals under `.weaveshift_demucs_cache/`. This can use substantial disk space during final QA runs. It is safe to delete the cache when you no longer need it.
 
 ## Lightweight test-only install
 
@@ -262,7 +262,7 @@ python -m pytest
 
 ## Optional editable install
 
-You can run FlowMix directly from the source tree with `python flowmix_setlist.py ...`.
+You can run WeaveShift directly from the source tree with `python weaveshift_setlist.py ...`.
 
 For command-line entry points, install it in editable mode from the repo root:
 
@@ -273,16 +273,16 @@ python -m pip install -e .
 Then run:
 
 ```bash
-flowmix-setlist examples/setlist_example.json \
-  -o output/flowmix_demo.wav \
+weaveshift-setlist examples/setlist_example.json \
+  -o output/weaveshift_demo.wav \
   --apply-manifest-settings
 
-flowmix-two-tracks "Track A.wav" "Track B.wav" \
+weaveshift-two-tracks "Track A.wav" "Track B.wav" \
   -o output/transition.wav \
   --mode profile \
   --profile edm
 
-flowmix-cues examples/setlist_example.json --out output/flowmix_cues.csv
+weaveshift-cues examples/setlist_example.json --out output/weaveshift_cues.csv
 ```
 
 ## Multi-track setlist usage
@@ -290,8 +290,8 @@ flowmix-cues examples/setlist_example.json --out output/flowmix_cues.csv
 Setlist paths may be `.wav`, `.mp3`, or a mix of both. Every track must share the same sample rate and channel count. Pick output format with `-o` (`.wav` or `.mp3`).
 
 ```bash
-python flowmix_setlist.py examples/setlist_example.json \
-  -o output/flowmix_demo.wav \
+python weaveshift_setlist.py examples/setlist_example.json \
+  -o output/weaveshift_demo.wav \
   --transition-mode profile \
   --profile edm \
   --vocal-method heuristic \
@@ -302,14 +302,14 @@ Use different built-in profiles:
 
 ```bash
 # EDM / workout / running mix
-python flowmix_setlist.py examples/setlist_example.json \
+python weaveshift_setlist.py examples/setlist_example.json \
   -o output/edm_hour.wav \
   --transition-mode profile \
   --profile edm \
   --make-snippets
 
 # Vocal trance / euphoric vocal EDM
-python flowmix_setlist.py examples/setlist_example.json \
+python weaveshift_setlist.py examples/setlist_example.json \
   -o output/vocal_trance_hour.wav \
   --transition-mode profile \
   --profile vocal_trance \
@@ -317,28 +317,28 @@ python flowmix_setlist.py examples/setlist_example.json \
   --make-snippets
 
 # Lounge / speakeasy / around-the-world background mix
-python flowmix_setlist.py examples/setlist_example.json \
+python weaveshift_setlist.py examples/setlist_example.json \
   -o output/lounge_hour.wav \
   --transition-mode profile \
   --profile lounge \
   --make-snippets
 
 # Jazz / blues / organic live-feel sequencing
-python flowmix_setlist.py examples/setlist_example.json \
+python weaveshift_setlist.py examples/setlist_example.json \
   -o output/jazz_hour.wav \
   --transition-mode profile \
   --profile jazz \
   --make-snippets
 
 # Love songs / heartbreak / ballad arc
-python flowmix_setlist.py examples/setlist_example.json \
+python weaveshift_setlist.py examples/setlist_example.json \
   -o output/songs_of_the_heart.wav \
   --transition-mode profile \
   --profile heart \
   --make-snippets
 
 # Cinematic / atmospheric continuous listening
-python flowmix_setlist.py examples/setlist_example.json \
+python weaveshift_setlist.py examples/setlist_example.json \
   -o output/cinematic_mix.wav \
   --transition-mode profile \
   --profile cinematic \
@@ -348,7 +348,7 @@ python flowmix_setlist.py examples/setlist_example.json \
 Use a custom TOML scoring profile:
 
 ```bash
-python flowmix_setlist.py examples/setlist_example.json \
+python weaveshift_setlist.py examples/setlist_example.json \
   -o output/custom_mix.wav \
   --transition-mode profile \
   --scoring-config configs/heart.toml
@@ -367,7 +367,7 @@ recommended, vocal_safe, beat_aligned, quick_cut, smooth, profile, vocal_ducked,
 * `--transition-mode profile` for setlist runs.
 * `--mode profile` for two-track transitions.
 
-FlowMix prints a warning if profile options are supplied with another mode.
+WeaveShift prints a warning if profile options are supplied with another mode.
 
 ## Per-transition overrides
 
@@ -389,11 +389,11 @@ Manifest settings behavior:
 --apply-manifest-settings
 ```
 
-When this flag is set, FlowMix copies a fixed allowlist of manifest `settings` keys onto CLI defaults: `transition_mode`, `profile`, `scoring_config`, `vocal_method`, `make_snippets`, `natural_pause_sec`, `search_a_sec`, `search_b_sec`, `max_trim_a_sec`, and `b_cue_max_sec`. Explicit CLI values always win, and any other settings key (such as `output`) is ignored with a warning. **`transition_overrides` do not require this flag** — they are applied whenever present in the manifest.
+When this flag is set, WeaveShift copies a fixed allowlist of manifest `settings` keys onto CLI defaults: `transition_mode`, `profile`, `scoring_config`, `vocal_method`, `make_snippets`, `natural_pause_sec`, `search_a_sec`, `search_b_sec`, `max_trim_a_sec`, and `b_cue_max_sec`. Explicit CLI values always win, and any other settings key (such as `output`) is ignored with a warning. **`transition_overrides` do not require this flag** — they are applied whenever present in the manifest.
 
 ### Candidate-mode override
 
-Use a candidate-mode override when you want FlowMix to force one transition to use a specific candidate style while still letting FlowMix calculate the timing, cue, overlap, and gain for that candidate.
+Use a candidate-mode override when you want WeaveShift to force one transition to use a specific candidate style while still letting WeaveShift calculate the timing, cue, overlap, and gain for that candidate.
 
 ```json
 {
@@ -426,7 +426,7 @@ recommended, vocal_safe, beat_aligned, quick_cut, smooth, profile, vocal_ducked,
 
 Setlist overrides also support the semantic `natural` and manual-only `handoff` modes described below.
 
-The optional `from` and `to` fields can identify a junction when `index` is omitted; otherwise they are labels for humans and reports. FlowMix prefers `index` when both are supplied.
+The optional `from` and `to` fields can identify a junction when `index` is omitted; otherwise they are labels for humans and reports. WeaveShift prefers `index` when both are supplied.
 
 ### Natural track boundary
 
@@ -435,7 +435,7 @@ Use `natural` when the outgoing song should play through its final sample, follo
 Apply it to every junction from the command line:
 
 ```bash
-python flowmix_setlist.py setlist.json \
+python weaveshift_setlist.py setlist.json \
   -o natural-listening-mix.wav \
   --transition-mode natural \
   --natural-pause-sec 1.5
@@ -494,7 +494,7 @@ Manual override fields:
 | `overlap_sec`      | Length of the crossfade/overlap in seconds             |
 | `b_gain_db`        | Gain applied to Track B during the transition          |
 
-Validation keeps manual overrides inside the source material: all values must be finite numbers, `a_fade_start_sec` and `b_cue_sec` must be >= 0, `a_cut_sec` must be greater than `a_fade_start_sec` and within Track A, `b_cue_sec` must be within Track B, and `overlap_sec` must be > 0. FlowMix rejects the manifest with a clear error rather than rendering from the wrong part of a track.
+Validation keeps manual overrides inside the source material: all values must be finite numbers, `a_fade_start_sec` and `b_cue_sec` must be >= 0, `a_cut_sec` must be greater than `a_fade_start_sec` and within Track A, `b_cue_sec` must be within Track B, and `overlap_sec` must be > 0. WeaveShift rejects the manifest with a clear error rather than rendering from the wrong part of a track.
 
 Manual overrides are especially helpful when a long crossfade causes a perceptual “switch forward, then switch back” effect. In that case, forcing a shorter overlap and a deeper Track B cue can sound cleaner than the technically highest-scoring candidate.
 
@@ -541,7 +541,7 @@ Validation keeps handoffs short and intentional: `takeover_overlap_sec` must be 
 ### Example setlist command with overrides
 
 ```bash
-python flowmix_setlist.py examples/setlist_example.json \
+python weaveshift_setlist.py examples/setlist_example.json \
   -o output/final_mix_with_overrides.wav \
   --transition-mode profile \
   --profile vocal_trance \
@@ -550,7 +550,7 @@ python flowmix_setlist.py examples/setlist_example.json \
   --make-snippets
 ```
 
-When an override is applied, FlowMix prints it in the transition log, for example:
+When an override is applied, WeaveShift prints it in the transition log, for example:
 
 ```text
 Using transition override for #6: You Never Broke Me → Je Cherche La Lumière = manual
@@ -562,7 +562,7 @@ The JSON report also includes the top-level `transition_overrides` array and mar
 ## Two-track transition usage
 
 ```bash
-python flowmix_two_tracks.py "Track A.wav" "Track B.wav" \
+python weaveshift_two_tracks.py "Track A.wav" "Track B.wav" \
   -o output/transition.wav \
   --mode profile \
   --profile edm \
@@ -633,7 +633,7 @@ min_beat_alignment = 0.35
 Run a custom file with:
 
 ```bash
-python flowmix_setlist.py examples/setlist_example.json \
+python weaveshift_setlist.py examples/setlist_example.json \
   -o output/custom_profile_mix.wav \
   --transition-mode profile \
   --scoring-config configs/vocal_trance.toml \
@@ -678,7 +678,7 @@ Other manifest `settings` keys apply only when you pass `--apply-manifest-settin
 
 ## Audio format policy
 
-FlowMix accepts **WAV and MP3 inputs in any combination** — a setlist can mix `.wav` and `.mp3` tracks. All tracks must share the same **sample rate** and **channel count**. When every input is WAV, subtype must also match (PCM_16, PCM_24, and so on).
+WeaveShift accepts **WAV and MP3 inputs in any combination** — a setlist can mix `.wav` and `.mp3` tracks. All tracks must share the same **sample rate** and **channel count**. When every input is WAV, subtype must also match (PCM_16, PCM_24, and so on).
 
 **Output is one file**, either WAV or MP3 — pick with the `-o` suffix:
 
@@ -689,7 +689,7 @@ WAV export uses the first lossless WAV subtype found in the inputs (otherwise PC
 
 WAV masters are still recommended for final release quality; MP3 sources may add encoder delay or re-encoding artifacts at transitions.
 
-`flowmix_cues.py` accepts the same `.wav` / `.mp3` inputs for video cue-sheet generation.
+`weaveshift_cues.py` accepts the same `.wav` / `.mp3` inputs for video cue-sheet generation.
 
 ## Suggested workflow
 
@@ -703,7 +703,7 @@ WAV masters are still recommended for final release quality; MP3 sources may add
 ## Repository layout
 
 ```text
-flowmix/
+weaveshift/
   LICENSE
   README.md
   CHANGELOG.md
@@ -715,15 +715,15 @@ flowmix/
   pyproject.toml
   .gitignore
 
-  flowmix_setlist.py       # setlist CLI
-  flowmix_two_tracks.py    # two-track CLI
-  flowmix_cues.py          # video cue sheet helper
-  flowmix_profiles.py      # TOML scoring profiles
-  flowmix_audio.py         # analysis and validation
-  flowmix_scoring.py       # candidate search and scoring
-  flowmix_rendering.py     # transition rendering
-  flowmix_reports.py       # JSON/CSV report builders
-  flowmix_plan.py          # plan/execute separation
+  weaveshift_setlist.py       # setlist CLI
+  weaveshift_two_tracks.py    # two-track CLI
+  weaveshift_cues.py          # video cue sheet helper
+  weaveshift_profiles.py      # TOML scoring profiles
+  weaveshift_audio.py         # analysis and validation
+  weaveshift_scoring.py       # candidate search and scoring
+  weaveshift_rendering.py     # transition rendering
+  weaveshift_reports.py       # JSON/CSV report builders
+  weaveshift_plan.py          # plan/execute separation
 
   configs/
   examples/
@@ -733,18 +733,18 @@ flowmix/
 
 ## Attribution
 
-FlowMix was created by Sherwin Lu.
+WeaveShift was created by Sherwin Lu.
 
-FlowMix is released under the MIT License, so you may use it in personal, research, open-source, or commercial projects. If you use FlowMix publicly, attribution is appreciated:
+WeaveShift is released under the MIT License, so you may use it in personal, research, open-source, or commercial projects. If you use WeaveShift publicly, attribution is appreciated:
 
 ```text
-FlowMix by Sherwin Lu
+WeaveShift by Sherwin Lu
 ```
 
 ## License
 
-FlowMix is released under the MIT License.
+WeaveShift is released under the MIT License.
 
-You may use, copy, modify, merge, publish, distribute, sublicense, and sell copies of FlowMix, including in commercial products, as long as the MIT copyright and license notice are preserved.
+You may use, copy, modify, merge, publish, distribute, sublicense, and sell copies of WeaveShift, including in commercial products, as long as the MIT copyright and license notice are preserved.
 
 See `LICENSE` for details.

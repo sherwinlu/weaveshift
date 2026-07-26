@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """
-flowmix_cues.py
+weaveshift_cues.py
 
-Generate candidate video cue points for a long-form FlowMix / EDM running mix.
+Generate candidate video cue points for a long-form WeaveShift / EDM running mix.
 
 What it does:
 - Reads a track manifest CSV.
-- Optionally reads a FlowMix timeline/report CSV containing final mix placement.
+- Optionally reads a WeaveShift timeline/report CSV containing final mix placement.
 - Analyzes each source audio file with librosa.
 - Suggests cue candidates:
     first_lift_candidate
@@ -21,7 +21,7 @@ use the output to jump to likely moments, then confirm by ear.
 
 Typical usage:
 
-    python flowmix_cues.py tracks.csv --timeline flowmix_report.csv --out cue_sheet.csv
+    python weaveshift_cues.py tracks.csv --timeline weaveshift_report.csv --out cue_sheet.csv
 
 Minimum tracks.csv columns:
     path,title
@@ -68,7 +68,7 @@ except ImportError as exc:
         "  python -m pip install librosa soundfile numpy\n"
     ) from exc
 
-from flowmix_audio import load_mono_analysis_audio, lossy_input_note, validate_audio_input
+from weaveshift_audio import load_mono_analysis_audio, lossy_input_note, validate_audio_input
 
 
 logger = logging.getLogger(__name__)
@@ -217,7 +217,7 @@ def read_timeline(path: Optional[Path]) -> Dict[str, TimelineRow]:
     for row in rows:
         title = get_first(row, ["title", "track", "name", "track_title", "track_b_title"])
         if not title:
-            # Some FlowMix transition rows may describe pairwise transitions.
+            # Some WeaveShift transition rows may describe pairwise transitions.
             title = get_first(row, ["incoming_title", "to_title", "b_title"])
         if not title:
             continue
@@ -408,7 +408,7 @@ def find_breakdown_candidate(
 
 def analyze_track(audio_file: Path, bpm_hint: Optional[float]) -> Tuple[float, Optional[float], Dict[str, Optional[float]], str, str]:
     # Avoid librosa.load(): it unconditionally touches audioread (broken on Python 3.13+).
-    # Read WAV via soundfile and MP3 via pydub/ffmpeg through flowmix_audio instead.
+    # Read WAV via soundfile and MP3 via pydub/ffmpeg through weaveshift_audio instead.
     y_native, sr_native, _duration_probe = load_mono_analysis_audio(audio_file)
     sr = 22050
     y = librosa.resample(y_native, orig_sr=sr_native, target_sr=sr) if sr_native != sr else y_native
@@ -628,7 +628,7 @@ def write_results(path: Path, results: List[CueResult]) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Generate candidate FlowMix video cue points from source tracks."
+        description="Generate candidate WeaveShift video cue points from source tracks."
     )
     parser.add_argument(
         "manifest",
@@ -639,7 +639,7 @@ def main() -> None:
         "--timeline",
         type=Path,
         default=None,
-        help="Optional FlowMix timeline/report CSV with final mix track starts and transition markers.",
+        help="Optional WeaveShift timeline/report CSV with final mix track starts and transition markers.",
     )
     parser.add_argument(
         "--audio-root",
@@ -650,8 +650,8 @@ def main() -> None:
     parser.add_argument(
         "--out",
         type=Path,
-        default=Path("flowmix_cues.csv"),
-        help="Output cue CSV path. Default: flowmix_cues.csv",
+        default=Path("weaveshift_cues.csv"),
+        help="Output cue CSV path. Default: weaveshift_cues.csv",
     )
     parser.add_argument(
         "--skip-missing",

@@ -4,9 +4,9 @@ from types import SimpleNamespace
 import numpy as np
 import soundfile as sf
 
-import flowmix_plan
-import flowmix_setlist
-from flowmix_two_tracks import AudioAnalysis, TransitionCandidate
+import weaveshift_plan
+import weaveshift_setlist
+from weaveshift_two_tracks import AudioAnalysis, TransitionCandidate
 
 
 def write_wav(path, duration=4.0, sr=48000, freq=440.0):
@@ -105,12 +105,12 @@ def test_build_continuous_mix_applies_manual_override_and_writes_report(tmp_path
     )
     out = tmp_path / "mix.wav"
 
-    monkeypatch.setattr(flowmix_plan, "analyze_audio", lambda path, role, **_: fake_analysis(path, role))
-    monkeypatch.setattr(flowmix_plan, "choose_candidates", lambda *_args, **_kwargs: [base_candidate()])
+    monkeypatch.setattr(weaveshift_plan, "analyze_audio", lambda path, role, **_: fake_analysis(path, role))
+    monkeypatch.setattr(weaveshift_plan, "choose_candidates", lambda *_args, **_kwargs: [base_candidate()])
 
-    flowmix_setlist.build_continuous_mix(args_for(manifest, out))
+    weaveshift_setlist.build_continuous_mix(args_for(manifest, out))
 
-    report_path = tmp_path / "mix.flowmix_1_0_0_setlist_report.json"
+    report_path = tmp_path / "mix.weaveshift_1_0_0_setlist_report.json"
     snippet_dir = tmp_path / "mix_transition_snippets"
     report = json.loads(report_path.read_text(encoding="utf-8"))
 
@@ -157,12 +157,12 @@ def test_build_continuous_mix_applies_handoff_override_and_writes_report(tmp_pat
     )
     out = tmp_path / "mix.wav"
 
-    monkeypatch.setattr(flowmix_plan, "analyze_audio", lambda path, role, **_: fake_analysis(path, role))
-    monkeypatch.setattr(flowmix_plan, "choose_candidates", lambda *_args, **_kwargs: [base_candidate()])
+    monkeypatch.setattr(weaveshift_plan, "analyze_audio", lambda path, role, **_: fake_analysis(path, role))
+    monkeypatch.setattr(weaveshift_plan, "choose_candidates", lambda *_args, **_kwargs: [base_candidate()])
 
-    flowmix_setlist.build_continuous_mix(args_for(manifest, out))
+    weaveshift_setlist.build_continuous_mix(args_for(manifest, out))
 
-    report_path = tmp_path / "mix.flowmix_1_0_0_setlist_report.json"
+    report_path = tmp_path / "mix.weaveshift_1_0_0_setlist_report.json"
     report = json.loads(report_path.read_text(encoding="utf-8"))
     transition = report["transitions"][0]
 
@@ -204,22 +204,22 @@ def test_build_continuous_mix_natural_override_preserves_tracks_and_inserts_paus
     args.make_snippets = False
 
     monkeypatch.setattr(
-        flowmix_plan,
+        weaveshift_plan,
         "analyze_audio",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("natural mode must not analyze audio")),
     )
     monkeypatch.setattr(
-        flowmix_plan,
+        weaveshift_plan,
         "choose_candidates",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("natural mode must not score crossfades")),
     )
 
-    flowmix_setlist.build_continuous_mix(args)
+    weaveshift_setlist.build_continuous_mix(args)
 
     source_a, _ = sf.read(a)
     source_b, _ = sf.read(b)
     audio, sample_rate = sf.read(out)
-    report = json.loads((tmp_path / "mix.flowmix_1_0_0_setlist_report.json").read_text(encoding="utf-8"))
+    report = json.loads((tmp_path / "mix.weaveshift_1_0_0_setlist_report.json").read_text(encoding="utf-8"))
     transition = report["transitions"][0]
 
     assert len(audio) == int(sample_rate * 9.25)
@@ -251,19 +251,19 @@ def test_global_natural_mode_uses_cli_pause_without_analysis(tmp_path, monkeypat
     args.make_snippets = False
 
     monkeypatch.setattr(
-        flowmix_plan,
+        weaveshift_plan,
         "analyze_audio",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("natural mode must not analyze audio")),
     )
     monkeypatch.setattr(
-        flowmix_plan,
+        weaveshift_plan,
         "choose_candidates",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("natural mode must not score crossfades")),
     )
 
-    flowmix_setlist.build_continuous_mix(args)
+    weaveshift_setlist.build_continuous_mix(args)
 
-    report = json.loads((tmp_path / "global.flowmix_1_0_0_setlist_report.json").read_text(encoding="utf-8"))
+    report = json.loads((tmp_path / "global.weaveshift_1_0_0_setlist_report.json").read_text(encoding="utf-8"))
     assert sf.info(out).duration == 8.5
     assert report["transitions"][0]["pause_sec"] == 0.5
     assert report["track_source_zero_in_mix_sec"] == [0.0, 4.5]
@@ -282,11 +282,11 @@ def test_mixed_mode_plan_analyzes_only_scored_junctions(tmp_path, monkeypatch):
         calls.append((path, role))
         return fake_analysis(path, role)
 
-    monkeypatch.setattr(flowmix_plan, "analyze_audio", record_analysis)
-    monkeypatch.setattr(flowmix_plan, "choose_candidates", lambda *_args, **_kwargs: [base_candidate()])
+    monkeypatch.setattr(weaveshift_plan, "analyze_audio", record_analysis)
+    monkeypatch.setattr(weaveshift_plan, "choose_candidates", lambda *_args, **_kwargs: [base_candidate()])
 
-    plan = flowmix_plan.plan_setlist_mix(
-        [flowmix_plan.TrackSpec(path=str(path), title=f"Track {i}") for i, path in enumerate(paths, start=1)],
+    plan = weaveshift_plan.plan_setlist_mix(
+        [weaveshift_plan.TrackSpec(path=str(path), title=f"Track {i}") for i, path in enumerate(paths, start=1)],
         manifest_settings={"transition_overrides": [{"index": 1, "mode": "natural", "pause_sec": 0.5}]},
         search_a_sec=1.0,
         search_b_sec=1.0,

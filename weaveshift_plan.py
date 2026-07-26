@@ -9,8 +9,8 @@ from typing import Dict, List, Optional, Sequence
 
 from pydub import AudioSegment
 
-from flowmix_profiles import ScoringProfile, load_scoring_profile
-from flowmix_audio import (
+from weaveshift_profiles import ScoringProfile, load_scoring_profile
+from weaveshift_audio import (
     MAX_OVERLAP_SEC,
     AudioAnalysis,
     NaturalTransition,
@@ -25,8 +25,8 @@ from flowmix_audio import (
     validate_audio_pair_compatibility,
     validate_loaded_segment_parity,
 )
-from flowmix_scoring import choose_candidates, profile_search_parameters, score_candidate
-from flowmix_reports import ranked_candidate_summary
+from weaveshift_scoring import choose_candidates, profile_search_parameters, score_candidate
+from weaveshift_reports import ranked_candidate_summary
 
 
 MAX_NATURAL_PAUSE_SEC = 300.0

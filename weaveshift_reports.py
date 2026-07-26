@@ -4,7 +4,7 @@ from __future__ import annotations
 from dataclasses import asdict
 from typing import Any, Dict, List, Mapping, Sequence
 
-from flowmix_audio import (
+from weaveshift_audio import (
     AudioAnalysis,
     NaturalTransition,
     SetlistTransition,

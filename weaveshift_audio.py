@@ -1,4 +1,4 @@
-"""Audio validation and analysis primitives for FlowMix."""
+"""Audio validation and analysis primitives for WeaveShift."""
 from __future__ import annotations
 
 import hashlib
@@ -847,7 +847,7 @@ def _demucs_cli_vocals_path(audio_path: str, model: str = "htdemucs") -> Path:
     including Python 3.14 + TorchCodec setups.
     """
     src = Path(audio_path)
-    cache_dir = Path.cwd() / ".flowmix_demucs_cache" / _audio_cache_key(audio_path)
+    cache_dir = Path.cwd() / ".weaveshift_demucs_cache" / _audio_cache_key(audio_path)
     model_dir = cache_dir / model
     existing = sorted(model_dir.glob("*/vocals.wav")) if model_dir.exists() else []
     if existing:
@@ -1009,7 +1009,7 @@ def analyze_audio(path: str, *, role: str, window_sec: float, manual_bpm: Option
     beat_load_offset = start if role == "a" else 0.0
     beat_load_dur = min(dur if role == "a" else duration_sec, 180.0)
     try:
-        # Same rationale as flowmix_cues.py: avoid librosa.load(), which unconditionally
+        # Same rationale as weaveshift_cues.py: avoid librosa.load(), which unconditionally
         # touches audioread.available_backends() (and therefore the stdlib aifc/sunau
         # modules removed in Python 3.13) even for plain WAV input. Read the windowed
         # chunk with soundfile/pydub directly and resample with librosa instead.

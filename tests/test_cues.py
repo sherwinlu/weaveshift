@@ -2,7 +2,7 @@ import csv
 
 import numpy as np
 
-from flowmix_cues import (
+from weaveshift_cues import (
     CueResult,
     TimelineRow,
     add_final_time,

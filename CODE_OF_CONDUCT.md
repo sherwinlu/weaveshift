@@ -2,7 +2,7 @@
 
 ## Our pledge
 
-FlowMix is a project for people building, testing, and improving audio tooling together. We are committed to making participation in this project welcoming, respectful, and productive for everyone.
+WeaveShift is a project for people building, testing, and improving audio tooling together. We are committed to making participation in this project welcoming, respectful, and productive for everyone.
 
 ## Expected behavior
 
@@ -26,7 +26,7 @@ Unacceptable behavior includes:
 
 ## Scope
 
-This code of conduct applies in all FlowMix project spaces, including issues, pull requests, discussions, documentation, and any community channels associated with the project.
+This code of conduct applies in all WeaveShift project spaces, including issues, pull requests, discussions, documentation, and any community channels associated with the project.
 
 ## Reporting
 
