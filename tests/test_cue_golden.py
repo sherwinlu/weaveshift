@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from flowmix_cues import analyze_track
+from weaveshift_cues import analyze_track
 
 from tests.audio_helpers import cue_fixture_track, write_stereo_mp3
 

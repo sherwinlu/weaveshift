@@ -3,20 +3,20 @@ import json
 import numpy as np
 import pytest
 
-import flowmix_audio
-import flowmix_plan
-import flowmix_setlist
-from flowmix_audio import AudioAnalysis, TransitionCandidate, analyze_audio, analyze_vocals
-from flowmix_plan import (
+import weaveshift_audio
+import weaveshift_plan
+import weaveshift_setlist
+from weaveshift_audio import AudioAnalysis, TransitionCandidate, analyze_audio, analyze_vocals
+from weaveshift_plan import (
     TrackSpec,
     apply_handoff_transition_override,
     apply_manual_transition_override,
     build_natural_transition,
     plan_setlist_mix,
 )
-from flowmix_reports import build_setlist_report, build_two_track_report, serialize_analysis
-from flowmix_scoring import profile_search_parameters
-from flowmix_profiles import ScoringProfile
+from weaveshift_reports import build_setlist_report, build_two_track_report, serialize_analysis
+from weaveshift_scoring import profile_search_parameters
+from weaveshift_profiles import ScoringProfile
 from tests.audio_helpers import write_click_track, write_stereo_wav
 
 
@@ -59,7 +59,7 @@ def test_natural_transition_rejects_negative_or_non_finite_pause():
 def test_build_two_track_report_round_trips_through_json():
     a = analysis("a")
     b = analysis("b")
-    from flowmix_reports import ranked_candidate_summary
+    from weaveshift_reports import ranked_candidate_summary
 
     ranked = ranked_candidate_summary(
         [
@@ -84,7 +84,7 @@ def test_build_two_track_report_round_trips_through_json():
         ]
     )
     report = build_two_track_report(
-        app_name="FlowMix test",
+        app_name="WeaveShift test",
         mode="all",
         recommended="vocal_safe",
         ranked=ranked,
@@ -100,7 +100,7 @@ def test_build_two_track_report_round_trips_through_json():
 
 def test_build_setlist_report_validates_transition_shape():
     report = build_setlist_report(
-        app_name="FlowMix Setlist",
+        app_name="WeaveShift Setlist",
         transition_mode="recommended",
         profile=None,
         scoring_config=None,
@@ -134,20 +134,20 @@ def test_analyze_audio_track_a_uses_outro_offset_for_beats(monkeypatch, tmp_path
     wav = write_click_track(tmp_path / "long.wav", duration=240.0, bpm=128.0)
     captured = {}
 
-    real_sf_read = flowmix_audio.sf.read
+    real_sf_read = weaveshift_audio.sf.read
 
     def fake_sf_read(path, *args, start=0, frames=-1, **kwargs):
         # Only the windowed tempo/beat read (called positionally with start=...) is of
         # interest here; the main stereo read at the top of analyze_audio also calls
         # sf.read but isn't what this test is checking.
         if start:
-            sr = flowmix_audio.sf.info(path).samplerate
+            sr = weaveshift_audio.sf.info(path).samplerate
             captured["offset"] = start / sr
             captured["duration"] = frames / sr
         return real_sf_read(path, *args, start=start, frames=frames, **kwargs)
 
-    monkeypatch.setattr(flowmix_audio.sf, "read", fake_sf_read)
-    monkeypatch.setattr(flowmix_audio, "analyze_vocals", lambda *args, **kwargs: ([], "heuristic"))
+    monkeypatch.setattr(weaveshift_audio.sf, "read", fake_sf_read)
+    monkeypatch.setattr(weaveshift_audio, "analyze_vocals", lambda *args, **kwargs: ([], "heuristic"))
 
     result = analyze_audio(
         str(wav),
@@ -247,7 +247,7 @@ def test_analyze_vocals_auto_falls_back_to_heuristic(monkeypatch):
     def boom(*args, **kwargs):
         raise RuntimeError("no demucs")
 
-    monkeypatch.setattr(flowmix_audio, "vocal_segments_demucs", boom)
+    monkeypatch.setattr(weaveshift_audio, "vocal_segments_demucs", boom)
     y = np.zeros((2, 48000), dtype=np.float32)
     segs, method = analyze_vocals("x.wav", y, 48000, 0.0, 1.0, "auto", False)
     assert method == "heuristic"
@@ -258,7 +258,7 @@ def test_analyze_vocals_demucs_mode_reraises(monkeypatch):
     def boom(*args, **kwargs):
         raise RuntimeError("no demucs")
 
-    monkeypatch.setattr(flowmix_audio, "vocal_segments_demucs", boom)
+    monkeypatch.setattr(weaveshift_audio, "vocal_segments_demucs", boom)
     y = np.zeros((2, 48000), dtype=np.float32)
     with pytest.raises(RuntimeError, match="no demucs"):
         analyze_vocals("x.wav", y, 48000, 0.0, 1.0, "demucs", False)
@@ -301,8 +301,8 @@ def test_three_track_setlist_plan_monkeypatched(tmp_path, monkeypatch):
         notes=["ok"],
     )
 
-    monkeypatch.setattr(flowmix_plan, "analyze_audio", lambda path, role, **_: fake)
-    monkeypatch.setattr(flowmix_plan, "choose_candidates", lambda *_a, **_k: [cand])
+    monkeypatch.setattr(weaveshift_plan, "analyze_audio", lambda path, role, **_: fake)
+    monkeypatch.setattr(weaveshift_plan, "choose_candidates", lambda *_a, **_k: [cand])
 
     tracks = [TrackSpec(path=str(p), title=f"T{i}") for i, p in enumerate(paths, start=1)]
     plan = plan_setlist_mix(tracks, search_a_sec=2.0, search_b_sec=2.0, vocal_method="heuristic", prefer_mps=False)
@@ -343,12 +343,12 @@ def test_three_track_setlist_execute_writes_mix(tmp_path, monkeypatch):
         notes=["ok"],
     )
 
-    monkeypatch.setattr(flowmix_plan, "analyze_audio", lambda path, role, **_: fake)
-    monkeypatch.setattr(flowmix_plan, "choose_candidates", lambda *_a, **_k: [cand])
+    monkeypatch.setattr(weaveshift_plan, "analyze_audio", lambda path, role, **_: fake)
+    monkeypatch.setattr(weaveshift_plan, "choose_candidates", lambda *_a, **_k: [cand])
 
     from types import SimpleNamespace
 
-    flowmix_setlist.build_continuous_mix(
+    weaveshift_setlist.build_continuous_mix(
         SimpleNamespace(
             setlist=str(manifest),
             output=str(out),
@@ -366,6 +366,6 @@ def test_three_track_setlist_execute_writes_mix(tmp_path, monkeypatch):
         )
     )
     assert out.exists()
-    report = json.loads((tmp_path / "mix.flowmix_1_0_0_setlist_report.json").read_text(encoding="utf-8"))
+    report = json.loads((tmp_path / "mix.weaveshift_1_0_0_setlist_report.json").read_text(encoding="utf-8"))
     assert len(report["transitions"]) == 2
     assert len(report["track_source_zero_in_mix_sec"]) == 3

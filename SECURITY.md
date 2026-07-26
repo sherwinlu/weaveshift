@@ -22,10 +22,10 @@ You should receive an acknowledgment within a few business days. We will coordin
 
 ## Scope
 
-FlowMix is a local CLI audio tool. Reports are in scope when they describe:
+WeaveShift is a local CLI audio tool. Reports are in scope when they describe:
 
-- Remote code execution through malicious project inputs processed by FlowMix
+- Remote code execution through malicious project inputs processed by WeaveShift
 - Unsafe file handling that enables path traversal or arbitrary writes outside intended output paths
-- Dependency or supply-chain issues that affect installed FlowMix users
+- Dependency or supply-chain issues that affect installed WeaveShift users
 
 General audio quality, scoring heuristics, and DJ workflow preferences are not security issues.

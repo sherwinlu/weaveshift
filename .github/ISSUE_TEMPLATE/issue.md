@@ -20,17 +20,17 @@ assignees: ""
 
 ## Expected behavior
 
-<!-- What did you expect FlowMix to do? -->
+<!-- What did you expect WeaveShift to do? -->
 
 ## Actual behavior
 
-<!-- What did FlowMix do instead? Include relevant errors, logs, or report snippets. -->
+<!-- What did WeaveShift do instead? Include relevant errors, logs, or report snippets. -->
 
 ## Environment
 
 - OS:
 - Python version:
-- FlowMix version or commit:
+- WeaveShift version or commit:
 - FFmpeg version:
 - Install method:
 

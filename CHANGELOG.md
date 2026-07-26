@@ -1,8 +1,12 @@
 # Changelog
 
-All notable changes to FlowMix will be documented in this file.
+All notable changes to WeaveShift will be documented in this file.
 
 ## Unreleased
+
+### Changed
+
+- Renamed the project from FlowMix to WeaveShift: the `flowmix_*.py` modules are now `weaveshift_*.py`, the package/CLI entry points are `weaveshift`/`weaveshift-*`, and the PyPI package name changes accordingly. Purely a rename — no behavior changed.
 
 ### Security
 
@@ -14,7 +18,7 @@ All notable changes to FlowMix will be documented in this file.
 - Manual and handoff transition overrides now reject non-finite (`NaN`/`Infinity`) values, negative `a_fade_start_sec`/`b_cue_sec`, and timing beyond either source track. A negative `b_cue_sec` previously sliced from the *end* of Track B and silently rendered the wrong audio.
 - Manifest settings and track fields (`bpm`, `key`, `path`, `settings`) are validated with clear error messages instead of failing deep inside planning or rendering.
 - Output stems containing dots (for example `-o "mix v1.2.wav"`) no longer lose part of their name in candidate, snippet, and report filenames.
-- `flowmix_cues.py` no longer crashes on degenerate, extremely short tracks when computing analysis frame spacing.
+- `weaveshift_cues.py` no longer crashes on degenerate, extremely short tracks when computing analysis frame spacing.
 - Missing `ffprobe` now reports an actionable "install ffmpeg" error instead of a raw `FileNotFoundError`.
 
 ## 1.0.2 - 2026-07-02
@@ -29,13 +33,13 @@ All notable changes to FlowMix will be documented in this file.
 
 - Mixed WAV and MP3 **format** support for setlist and two-track mixing when sample rate and channel count match.
 - MP3 output via `-o mix.mp3` (320 kbps). WAV remains the default when no suffix is given.
-- MP3 cue-sheet analysis in `flowmix_cues.py` using the same windowed decode path as mix rendering.
+- MP3 cue-sheet analysis in `flowmix_cues.py` (renamed to `weaveshift_cues.py` in the later WeaveShift rebrand) using the same windowed decode path as mix rendering.
 - Demo fixtures are generated locally via `examples/generate_fixtures.py` (synthetic audio only; not committed).
 - Manual-only `handoff` transition overrides for cases where Track A should fade down before Track B takes over with a short, controlled overlap.
 
 ## 1.0.0 - Initial public release
 
-Initial public release of FlowMix.
+Initial public release of FlowMix (renamed to WeaveShift in a later release).
 
 ### Added
 

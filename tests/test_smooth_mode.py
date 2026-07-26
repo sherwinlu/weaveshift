@@ -1,5 +1,5 @@
-from flowmix_two_tracks import TransitionCandidate, smooth_candidate_score
-from flowmix_plan import select_candidate
+from weaveshift_two_tracks import TransitionCandidate, smooth_candidate_score
+from weaveshift_plan import select_candidate
 
 
 def cand(

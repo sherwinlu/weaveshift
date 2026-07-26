@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""FlowMix 1.0.2 WAV Setlist Builder.
+"""WeaveShift 1.0.2 WAV Setlist Builder.
 
 Builds a continuous WAV mix from an ordered setlist of full-mix WAV masters.
-Planning (analysis/scoring/selection) lives in flowmix_plan; this module handles
+Planning (analysis/scoring/selection) lives in weaveshift_plan; this module handles
 manifest loading, render/export, and CLI orchestration.
 """
 from __future__ import annotations
@@ -18,19 +18,19 @@ from typing import Dict, List, Optional, Tuple, cast
 
 from pydub import AudioSegment
 
-from flowmix_audio import (
+from weaveshift_audio import (
     NaturalTransition,
     format_timestamp,
     output_format_suffix,
     resolve_wav_export_subtype,
     validate_audio_output,
 )
-from flowmix_plan import MAX_NATURAL_PAUSE_SEC, TrackSpec, plan_setlist_mix
-from flowmix_rendering import export_audio, render_transition_tail, sec_to_ms
-from flowmix_reports import build_setlist_report, candidate_verdict
+from weaveshift_plan import MAX_NATURAL_PAUSE_SEC, TrackSpec, plan_setlist_mix
+from weaveshift_rendering import export_audio, render_transition_tail, sec_to_ms
+from weaveshift_reports import build_setlist_report, candidate_verdict
 
 APP_VERSION = "1.0.2"
-APP_NAME = f"FlowMix {APP_VERSION} Setlist Builder"
+APP_NAME = f"WeaveShift {APP_VERSION} Setlist Builder"
 
 TRANSITION_MODES = (
     "recommended",
@@ -347,7 +347,7 @@ def build_continuous_mix(args) -> None:
 
     # Append rather than with_suffix(): a dotted output stem such as
     # "mix v1.2.wav" must not lose part of its name to suffix replacement.
-    report_path = base.with_name(base.name + ".flowmix_1_0_0_setlist_report.json")
+    report_path = base.with_name(base.name + ".weaveshift_1_0_0_setlist_report.json")
     report = build_setlist_report(
         app_name=APP_NAME,
         transition_mode=args.transition_mode,
@@ -377,9 +377,9 @@ def build_continuous_mix(args) -> None:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(description="FlowMix 1.0.2 setlist builder")
+    p = argparse.ArgumentParser(description="WeaveShift 1.0.2 setlist builder")
     p.add_argument("setlist", help="JSON manifest or text file with one audio path per line")
-    p.add_argument("-o", "--output", default="flowmix_setlist_1_0_0.wav", help="Output continuous mix (.wav or .mp3; MP3 exports at 320 kbps)")
+    p.add_argument("-o", "--output", default="weaveshift_setlist_1_0_0.wav", help="Output continuous mix (.wav or .mp3; MP3 exports at 320 kbps)")
     p.add_argument("--transition-mode", default="recommended", choices=list(TRANSITION_MODES), help="Which transition style to select at each junction")
     p.add_argument(
         "--natural-pause-sec",

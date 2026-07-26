@@ -3,7 +3,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from flowmix_audio import (
+from weaveshift_audio import (
     camelot_compat,
     compute_local_energy_curve,
     compute_local_lufs_curve,

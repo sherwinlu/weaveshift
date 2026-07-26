@@ -1,4 +1,4 @@
-"""Audio rendering and export helpers for FlowMix."""
+"""Audio rendering and export helpers for WeaveShift."""
 from __future__ import annotations
 
 import math
@@ -9,7 +9,7 @@ from typing import Optional, Tuple, cast
 import numpy as np
 from pydub import AudioSegment
 
-from flowmix_audio import (
+from weaveshift_audio import (
     DEFAULT_MP3_BITRATE,
     SUPPORTED_MP3_SUFFIXES,
     NaturalTransition,

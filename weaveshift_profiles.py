@@ -1,4 +1,4 @@
-"""Scoring profile support for FlowMix.
+"""Scoring profile support for WeaveShift.
 
 Profiles are TOML files that let the same transition engine behave differently
 for EDM/workout mixes, vocal trance sets, lounge/background journeys, jazz/blues,
@@ -49,7 +49,7 @@ def builtin_profile_path(name: str) -> Path:
     """Return the best available path for a built-in profile.
 
     Source-tree runs keep configs/ next to these scripts. Editable/installed
-    runs may install the TOML files under share/flowmix/configs. This helper
+    runs may install the TOML files under share/weaveshift/configs. This helper
     checks both locations so `pip install .` is usable without requiring users
     to copy config files manually.
     """
@@ -61,9 +61,9 @@ def builtin_profile_path(name: str) -> Path:
     filename = f"{name}.toml"
     candidates = [
         Path(__file__).resolve().parent / "configs" / filename,
-        Path(__file__).resolve().parent / "share" / "flowmix" / "configs" / filename,
+        Path(__file__).resolve().parent / "share" / "weaveshift" / "configs" / filename,
         Path.cwd() / "configs" / filename,
-        Path(sys.prefix) / "share" / "flowmix" / "configs" / filename,
+        Path(sys.prefix) / "share" / "weaveshift" / "configs" / filename,
     ]
     for candidate in candidates:
         if candidate.exists():

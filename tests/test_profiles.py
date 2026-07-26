@@ -1,5 +1,5 @@
-from flowmix_profiles import ScoringProfile, load_scoring_profile
-from flowmix_two_tracks import profile_search_parameters
+from weaveshift_profiles import ScoringProfile, load_scoring_profile
+from weaveshift_two_tracks import profile_search_parameters
 
 
 def test_profile_limits_shape_candidate_search_space():
@@ -36,11 +36,11 @@ def test_builtin_profiles_have_vocal_collision_cutoffs():
         assert profile.limit("max_vocal_collision_score", -1) == cutoff
 
 
-def test_pyproject_installs_flowmix_modules_and_scripts():
+def test_pyproject_installs_weaveshift_modules_and_scripts():
     from pathlib import Path
     text = Path("pyproject.toml").read_text(encoding="utf-8")
     assert "[build-system]" in text
     assert "py-modules" in text
-    assert "flowmix_two_tracks" in text
-    assert "flowmix-setlist" in text
-    assert "share/flowmix/configs" in text
+    assert "weaveshift_two_tracks" in text
+    assert "weaveshift-setlist" in text
+    assert "share/weaveshift/configs" in text

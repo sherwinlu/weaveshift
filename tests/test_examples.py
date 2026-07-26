@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from flowmix_setlist import main as setlist_main
+from weaveshift_setlist import main as setlist_main
 
 REPO = Path(__file__).resolve().parents[1]
 EXAMPLE = REPO / "examples" / "setlist_example.json"

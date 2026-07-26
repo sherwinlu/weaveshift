@@ -3,7 +3,7 @@ import numpy as np
 import soundfile as sf
 import pytest
 
-from flowmix_two_tracks import validate_wav_input, validate_wav_pair_compatibility, OVERLAP_LENGTHS, MAX_OVERLAP_SEC
+from weaveshift_two_tracks import validate_wav_input, validate_wav_pair_compatibility, OVERLAP_LENGTHS, MAX_OVERLAP_SEC
 
 
 def write_wav(path: Path, sr=48000, subtype="PCM_16", channels=2):
@@ -44,7 +44,7 @@ def test_missing_file_cli_exits_cleanly():
     import subprocess
     import sys
     result = subprocess.run(
-        [sys.executable, "flowmix_two_tracks.py", "missing_a.wav", "missing_b.wav"],
+        [sys.executable, "weaveshift_two_tracks.py", "missing_a.wav", "missing_b.wav"],
         cwd=str(Path(__file__).resolve().parents[1]),
         text=True,
         capture_output=True,
@@ -63,7 +63,7 @@ def test_export_wav_matching_subtype_preserves_pcm24(tmp_path):
     explicitly rather than trusting the in-memory width.
     """
     from pydub import AudioSegment
-    from flowmix_two_tracks import export_wav_matching_subtype
+    from weaveshift_two_tracks import export_wav_matching_subtype
 
     src = tmp_path / "src24.wav"
     write_wav(src, subtype="PCM_24")
@@ -81,7 +81,7 @@ def test_export_wav_matching_subtype_preserves_pcm24(tmp_path):
 
 def test_export_wav_matching_subtype_preserves_pcm16(tmp_path):
     from pydub import AudioSegment
-    from flowmix_two_tracks import export_wav_matching_subtype
+    from weaveshift_two_tracks import export_wav_matching_subtype
 
     src = tmp_path / "src16.wav"
     write_wav(src, subtype="PCM_16")
@@ -100,7 +100,7 @@ def test_candidate_too_close_deduplicates_vocal_ducked():
     a re-implementation of it.
     """
     from dataclasses import replace
-    from flowmix_two_tracks import TransitionCandidate, candidate_too_close
+    from weaveshift_two_tracks import TransitionCandidate, candidate_too_close
 
     base = TransitionCandidate(
         name="candidate", score=0.9, a_fade_start_sec=40.0, a_cut_sec=48.0,
@@ -134,7 +134,7 @@ def test_two_track_cli_short_track_fails_clearly_and_creates_no_false_success(tm
 
     out = tmp_path / "new_output_dir" / "out.wav"
     result = subprocess.run(
-        [sys.executable, "flowmix_two_tracks.py", str(a), str(b), "-o", str(out), "--vocal-method", "heuristic"],
+        [sys.executable, "weaveshift_two_tracks.py", str(a), str(b), "-o", str(out), "--vocal-method", "heuristic"],
         cwd=str(Path(__file__).resolve().parents[1]),
         text=True,
         capture_output=True,
@@ -146,7 +146,7 @@ def test_two_track_cli_short_track_fails_clearly_and_creates_no_false_success(tm
 
 
 def test_heuristic_vocal_length_guard_uses_sample_count_not_channel_count(monkeypatch):
-    from flowmix_two_tracks import vocal_segments_heuristic, librosa
+    from weaveshift_two_tracks import vocal_segments_heuristic, librosa
 
     called = {"hpss": False}
 
