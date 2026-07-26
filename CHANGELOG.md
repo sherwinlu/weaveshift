@@ -4,6 +4,10 @@ All notable changes to WeaveShift will be documented in this file.
 
 ## Unreleased
 
+### Changed
+
+- Renamed the project from FlowMix to WeaveShift: the `flowmix_*.py` modules are now `weaveshift_*.py`, the package/CLI entry points are `weaveshift`/`weaveshift-*`, and the PyPI package name changes accordingly. Purely a rename — no behavior changed.
+
 ### Security
 
 - `--apply-manifest-settings` now applies only an allowlist of tuning keys (`transition_mode`, `profile`, `scoring_config`, `vocal_method`, `make_snippets`, `natural_pause_sec`, `search_a_sec`, `search_b_sec`, `max_trim_a_sec`, `b_cue_max_sec`). A manifest can no longer override CLI-only arguments such as the output path; unsupported keys are ignored with a warning.
@@ -29,13 +33,13 @@ All notable changes to WeaveShift will be documented in this file.
 
 - Mixed WAV and MP3 **format** support for setlist and two-track mixing when sample rate and channel count match.
 - MP3 output via `-o mix.mp3` (320 kbps). WAV remains the default when no suffix is given.
-- MP3 cue-sheet analysis in `weaveshift_cues.py` using the same windowed decode path as mix rendering.
+- MP3 cue-sheet analysis in `flowmix_cues.py` (renamed to `weaveshift_cues.py` in the later WeaveShift rebrand) using the same windowed decode path as mix rendering.
 - Demo fixtures are generated locally via `examples/generate_fixtures.py` (synthetic audio only; not committed).
 - Manual-only `handoff` transition overrides for cases where Track A should fade down before Track B takes over with a short, controlled overlap.
 
 ## 1.0.0 - Initial public release
 
-Initial public release of WeaveShift.
+Initial public release of FlowMix (renamed to WeaveShift in a later release).
 
 ### Added
 
