@@ -80,7 +80,7 @@ from weaveshift_reports import (
     serialize_analysis,
 )
 
-APP_VERSION = "1.0.2"
+APP_VERSION = "1.1.0"
 APP_NAME = f"WeaveShift {APP_VERSION}"
 
 
@@ -209,7 +209,7 @@ def print_rankings(ranked: list[dict[str, Any]], outputs_by_name: dict[str, dict
 
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
-        description="WeaveShift 1.0.2: two-track mixing with ranked transition recommendations"
+        description="WeaveShift 1.1.0: two-track mixing with ranked transition recommendations"
     )
     p.add_argument("track_a", help="Outgoing Track A audio file (.wav or .mp3)")
     p.add_argument("track_b", help="Incoming Track B audio file (.wav or .mp3)")

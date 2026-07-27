@@ -4,6 +4,8 @@ All notable changes to WeaveShift will be documented in this file.
 
 ## Unreleased
 
+## 1.1.0 - 2026-07-27
+
 ### Changed
 
 - Renamed the project from FlowMix to WeaveShift: the `flowmix_*.py` modules are now `weaveshift_*.py`, the package/CLI entry points are `weaveshift`/`weaveshift-*`, and the PyPI package name changes accordingly. Purely a rename — no behavior changed.
