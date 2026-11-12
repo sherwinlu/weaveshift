@@ -39,6 +39,16 @@ def make_clean_tone(sr=48000, duration=2.0, freq=440.0, amp=0.1):
     return y.astype(np.float64), sr
 
 
+def make_drifting_track(sr=48000, duration=30.0, freq=220.0, quiet_amp=0.05, loud_amp=0.2):
+    """A track that is quiet for its first half and clearly louder for its
+    second half -- long enough (>= 20 s) for the leveler's drift check to
+    engage."""
+    t = np.linspace(0, duration, int(sr * duration), endpoint=False)
+    amp = np.where(t < duration / 2.0, quiet_amp, loud_amp)
+    y = amp * np.sin(2 * np.pi * freq * t)
+    return np.column_stack([y, y]).astype(np.float64), sr
+
+
 def test_analyze_track_finds_the_mud_and_fizz_peaks():
     y, sr = make_problem_track()
     metrics = analyze_track(y, sr)
@@ -89,6 +99,32 @@ def test_apply_cleanup_is_a_no_op_shape_wise_for_mono_input():
     out = apply_cleanup(mono, sr, params)
     assert out.shape == mono.shape
     assert np.all(np.isfinite(out))
+
+
+def test_leveler_engages_on_loudness_drift_and_turns_down_the_loud_half():
+    y, sr = make_drifting_track()
+    metrics = analyze_track(y, sr)
+    assert metrics.loudness_drift_lu > 1.0
+
+    params = auto_params(metrics, song_type="custom", intensity="balanced")
+    assert params.level_amt > 0.0
+
+    out = apply_cleanup(y, sr, params)
+    half = len(y) // 2
+
+    def rms_db(block):
+        return 20.0 * np.log10(np.sqrt(np.mean(block.astype(np.float64) ** 2)) + 1e-12)
+
+    before_gap = rms_db(y[half:]) - rms_db(y[:half])
+    after_gap = rms_db(out[half:]) - rms_db(out[:half])
+    assert after_gap < before_gap - 0.3  # the loud half was pulled down relative to the quiet half
+
+
+def test_leveler_stays_off_for_short_tracks_even_with_a_big_level_jump():
+    y, sr = make_drifting_track(duration=10.0)  # below the 20 s engage threshold
+    metrics = analyze_track(y, sr)
+    params = auto_params(metrics, song_type="custom", intensity="balanced")
+    assert params.level_amt == 0.0
 
 
 def test_true_peak_ceiling_is_respected_even_with_strong_loudness_boost():
