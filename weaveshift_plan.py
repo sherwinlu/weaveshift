@@ -4,7 +4,7 @@ from __future__ import annotations
 import math
 import sys
 import tempfile
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Dict, List, Optional, Sequence
 
@@ -446,13 +446,16 @@ def plan_setlist_mix(
 
     cleanup_tmpdir: Optional[tempfile.TemporaryDirectory] = None
     try:
+        original_wav_infos: Optional[List[Dict[str, object]]] = None
         if cleanup is not None:
             cleanup_tmpdir = tempfile.TemporaryDirectory(prefix="weaveshift_cleanup_")
             workdir = Path(cleanup_tmpdir.name)
             print(f"Cleaning {len(original_tracks)} track(s) before mixing (song type: {cleanup.song_type})...")
             cleaned_specs: List[TrackSpec] = []
+            original_wav_infos = []
             for i, spec in enumerate(original_tracks):
                 original_path = validate_audio_input(spec.path, f"Track {i + 1}")
+                original_wav_infos.append(audio_info(original_path))
                 cleaned_path = cleaned_temp_copy(original_path, workdir, cleanup, f"track_{i + 1}")
                 cleaned_specs.append(TrackSpec(path=str(cleaned_path), title=spec.title, bpm=spec.bpm, key=spec.key))
             tracks = cleaned_specs
@@ -465,6 +468,12 @@ def plan_setlist_mix(
         )
 
         wav_infos, segments = validate_setlist_formats(tracks)
+        if original_wav_infos is not None:
+            # Report/export-subtype decisions (resolve_wav_export_subtype,
+            # the setlist report's wav_format_validation) should reflect the
+            # real source files, not the cleaned copies' normalized format --
+            # same principle as plan_two_track_mix's track_a/b_wav_info.
+            wav_infos = original_wav_infos
         source_zero_in_mix_sec: List[float] = [0.0]
         junctions: List[JunctionPlan] = []
         mix_len_ms = assembled_mix_len_ms if assembled_mix_len_ms is not None else len(segments[0])
@@ -504,6 +513,11 @@ def plan_setlist_mix(
                     vocal_method=vocal_method,
                     prefer_mps=prefer_mps,
                 )
+                if cleanup is not None:
+                    # Report the real source files, not the cleaned temp
+                    # copies this function deletes before returning.
+                    a_analysis = replace(a_analysis, path=original_tracks[i].path)
+                    b_analysis = replace(b_analysis, path=original_tracks[i + 1].path)
                 candidates = choose_candidates(
                     a_analysis, b_analysis, max_trim_a_sec, b_cue_max_sec, scoring_profile=scoring_profile
                 )
@@ -644,6 +658,11 @@ def plan_two_track_mix(
             vocal_method=vocal_method,
             prefer_mps=prefer_mps,
         )
+        if cleanup is not None:
+            # Report the real source files, not the cleaned temp copies this
+            # function is about to delete out from under that path.
+            a_analysis = replace(a_analysis, path=str(track_a_path))
+            b_analysis = replace(b_analysis, path=str(track_b_path))
 
         candidates = choose_candidates(
             a_analysis, b_analysis, max_trim_a_sec, b_cue_max_sec, scoring_profile=scoring_profile

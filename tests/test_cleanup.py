@@ -75,6 +75,12 @@ def test_intensity_scales_the_correction_up():
     strong = auto_params(metrics, song_type="custom", intensity="strong")
     assert strong.mud_depth_db >= light.mud_depth_db
     assert strong.fizz_depth_db >= light.fizz_depth_db
+    # The leveler's correction amount must scale with intensity too, the
+    # same way mud/fizz/air do (regression test: auto_params() used to
+    # always return level_range_db=st.level_cap_db regardless of intensity).
+    assert strong.level_range_db > light.level_range_db
+    balanced = auto_params(metrics, song_type="custom", intensity="balanced")
+    assert light.level_range_db < balanced.level_range_db < strong.level_range_db
 
 
 def test_apply_cleanup_reduces_mono_low_end_width():

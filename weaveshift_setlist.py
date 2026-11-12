@@ -25,7 +25,12 @@ from weaveshift_audio import (
     resolve_wav_export_subtype,
     validate_audio_output,
 )
-from weaveshift_cleanup import CleanupOptions, SONG_TYPES as CLEANUP_SONG_TYPES, INTENSITY as CLEANUP_INTENSITY, LOUD_MODES as CLEANUP_LOUD_MODES
+from weaveshift_cleanup import (
+    SONG_TYPES as CLEANUP_SONG_TYPES,
+    INTENSITY as CLEANUP_INTENSITY,
+    LOUD_MODES as CLEANUP_LOUD_MODES,
+    resolve_cleanup_options,
+)
 from weaveshift_plan import MAX_NATURAL_PAUSE_SEC, TrackSpec, plan_setlist_mix
 from weaveshift_rendering import export_audio, render_transition_tail, sec_to_ms
 from weaveshift_reports import build_setlist_report, candidate_verdict
@@ -228,18 +233,7 @@ def build_continuous_mix(args) -> None:
     print(f"Loaded setlist with {len(tracks)} tracks.")
     print("Chain mode: preserving source timing/pitch; one selected transition per junction.")
 
-    cleanup = None
-    if getattr(args, "cleanup", False):
-        cleanup_song_type = getattr(args, "cleanup_song_type", None)
-        if cleanup_song_type is None:
-            cleanup_song_type = args.profile if args.profile in CLEANUP_SONG_TYPES else "custom"
-        cleanup_report_dir = getattr(args, "cleanup_report_dir", None)
-        cleanup = CleanupOptions(
-            song_type=cleanup_song_type,
-            intensity=getattr(args, "cleanup_intensity", "balanced"),
-            loud=getattr(args, "cleanup_loud", "louder"),
-            report_dir=Path(cleanup_report_dir) if cleanup_report_dir else None,
-        )
+    cleanup = resolve_cleanup_options(args)
 
     mix_plan = plan_setlist_mix(
         tracks,

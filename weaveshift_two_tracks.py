@@ -11,7 +11,12 @@ from typing import Any, Dict, List, Optional, cast
 
 from pydub import AudioSegment
 
-from weaveshift_cleanup import CleanupOptions, SONG_TYPES as CLEANUP_SONG_TYPES, INTENSITY as CLEANUP_INTENSITY, LOUD_MODES as CLEANUP_LOUD_MODES
+from weaveshift_cleanup import (
+    SONG_TYPES as CLEANUP_SONG_TYPES,
+    INTENSITY as CLEANUP_INTENSITY,
+    LOUD_MODES as CLEANUP_LOUD_MODES,
+    resolve_cleanup_options,
+)
 from weaveshift_profiles import load_scoring_profile
 from weaveshift_audio import (
     AudioAnalysis,
@@ -96,18 +101,7 @@ def run(args) -> None:
             file=sys.stderr,
         )
 
-    cleanup = None
-    if getattr(args, "cleanup", False):
-        cleanup_song_type = getattr(args, "cleanup_song_type", None)
-        if cleanup_song_type is None:
-            cleanup_song_type = args.profile if args.profile in CLEANUP_SONG_TYPES else "custom"
-        cleanup_report_dir = getattr(args, "cleanup_report_dir", None)
-        cleanup = CleanupOptions(
-            song_type=cleanup_song_type,
-            intensity=getattr(args, "cleanup_intensity", "balanced"),
-            loud=getattr(args, "cleanup_loud", "louder"),
-            report_dir=Path(cleanup_report_dir) if cleanup_report_dir else None,
-        )
+    cleanup = resolve_cleanup_options(args)
 
     mix_plan = plan_two_track_mix(
         args.track_a,

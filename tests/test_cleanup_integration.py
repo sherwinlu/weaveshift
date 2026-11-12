@@ -89,6 +89,12 @@ def test_plan_two_track_mix_with_cleanup_analyzes_a_cleaned_copy(tmp_path, monke
     assert mix_plan.track_a_wav_info["subtype"] == "PCM_16"
     # segments were loaded (from the cleaned copies) with the same transport-level format.
     assert mix_plan.seg_a.frame_rate == 48000
+    # Regression: the returned analysis' .path must point at the real source
+    # file, not the cleaned temp copy -- that temp directory is deleted
+    # before this function returns, so a stale path there would be unusable
+    # (e.g. in the JSON mix report) and wouldn't even exist on disk.
+    assert mix_plan.track_a_analysis.path == str(a)
+    assert mix_plan.track_b_analysis.path == str(b)
 
 
 def test_plan_two_track_mix_without_cleanup_analyzes_the_original_files(tmp_path, monkeypatch):
@@ -150,3 +156,15 @@ def test_plan_setlist_mix_with_cleanup_analyzes_cleaned_copies(tmp_path, monkeyp
     # the returned plan still reports the original track specs.
     assert [t.path for t in mix_plan.tracks] == [str(a), str(b)]
     assert mix_plan.segments[0].frame_rate == 48000
+    # Regression: per-junction analysis.path must be the real source file
+    # (same reasoning as the two-track case above), not the deleted temp copy.
+    junction = mix_plan.junctions[0]
+    assert junction.track_a_analysis.path == str(a)
+    assert junction.track_b_analysis.path == str(b)
+    # Regression: wav_infos (drives resolve_wav_export_subtype and the
+    # setlist report's wav_format_validation) must describe the original
+    # PCM_16 sources, not the cleaned copies' normalized PCM_24 -- otherwise
+    # --cleanup silently upgrades the chosen export bit depth for WAV
+    # output, diverging from plan_two_track_mix's own documented behavior.
+    assert mix_plan.wav_infos[0]["subtype"] == "PCM_16"
+    assert mix_plan.wav_infos[1]["subtype"] == "PCM_16"

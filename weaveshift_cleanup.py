@@ -307,6 +307,12 @@ def auto_params(metrics: TrackMetrics, song_type: str = "custom", intensity: str
     air_gain_db = clamp(metrics.air_deficit_db * 0.5 * k, 0.0, st.air_cap_db)
     width = st.width if (metrics.channels > 1 and metrics.correlation > 0.15) else 1.0
     engage_leveler = metrics.duration_sec >= 20.0 and abs(metrics.loudness_drift_lu) > 1.0
+    # Whether the leveler engages at all is a detection decision (is there a
+    # real drift problem?) and stays intensity-independent, like the mud/fizz/
+    # air detectors above. How hard it corrects once engaged -- level_range_db
+    # -- scales with intensity the same way mud_depth_db/fizz_depth_db/
+    # air_gain_db do, bounded by the Song Type's own cap.
+    level_range_db = clamp(st.level_cap_db * k, 0.0, st.level_cap_db * INTENSITY["strong"])
 
     return CleanupParams(
         hp_freq=st.hp_freq,
@@ -321,7 +327,7 @@ def auto_params(metrics: TrackMetrics, song_type: str = "custom", intensity: str
         width=width,
         level_amt=1.0 if engage_leveler else 0.0,
         level_allowance_lu=2.0,
-        level_range_db=st.level_cap_db,
+        level_range_db=level_range_db,
     )
 
 
@@ -665,6 +671,32 @@ class CleanupOptions:
     intensity: str = "balanced"
     loud: str = "louder"
     report_dir: Optional[Path] = None
+
+
+def resolve_cleanup_options(args: object) -> Optional[CleanupOptions]:
+    """Build CleanupOptions from a CLI argparse Namespace, or None if
+    --cleanup wasn't requested.
+
+    Shared by weaveshift_two_tracks.py and weaveshift_setlist.py so the
+    --cleanup-song-type -> --profile fallback rule (and every other
+    cleanup-flag default) can't drift between the two CLIs. Reads
+    attributes with getattr(..., default) so a hand-built Namespace that
+    predates the cleanup_* attributes (as some tests construct) is treated
+    the same as "no --cleanup" rather than raising AttributeError.
+    """
+    if not getattr(args, "cleanup", False):
+        return None
+    song_type = getattr(args, "cleanup_song_type", None)
+    if song_type is None:
+        profile = getattr(args, "profile", None)
+        song_type = profile if profile in SONG_TYPES else "custom"
+    report_dir = getattr(args, "cleanup_report_dir", None)
+    return CleanupOptions(
+        song_type=song_type,
+        intensity=getattr(args, "cleanup_intensity", "balanced"),
+        loud=getattr(args, "cleanup_loud", "louder"),
+        report_dir=Path(report_dir) if report_dir else None,
+    )
 
 
 def cleaned_temp_copy(src: Path, workdir: Path, opts: CleanupOptions, label: str) -> Path:
