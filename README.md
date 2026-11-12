@@ -20,6 +20,7 @@ The same engine can be tuned for EDM/workout mixes, vocal trance, lounge/backgro
 * Exports transition snippets and a detailed JSON report.
 * Supports TOML scoring profiles: `edm`, `vocal_trance`, `vocal_trance_strict`, `lounge`, `jazz`, `heart`, and `cinematic`.
 * Supports per-transition overrides for exact handoffs that sound better by ear than the highest-scoring automatic candidate.
+* Optional `--cleanup` mix-polish pass for AI-generated songs and stems: low tighten, mud cut, de-fizz, air, loudness leveling, and a true-peak-safe export ceiling, runnable standalone (`weaveshift_cleanup.py`) or automatically on every input track before mixing.
 
 ## Quick start
 
@@ -569,6 +570,38 @@ python weaveshift_two_tracks.py "Track A.wav" "Track B.wav" \
   --make-snippets
 ```
 
+## Mix-polish cleanup (`--cleanup`)
+
+AI-generated songs and stems often share the same mix problems: muddy low-mids, a harsh "fizz" in the top end, a wandering stereo image, and loudness that drifts over the track. `weaveshift_cleanup.py` is a standalone mix-polish pass that analyzes a whole track once and corrects those specific problems — low tighten (high-pass + mono-below), mud cut, de-fizz, air, a leveler for loudness drift, and a true-peak-safe (−1 dBTP) ceiling on export.
+
+Run it on its own:
+
+```bash
+python weaveshift_cleanup.py "AI Song.wav" -o output/cleaned.wav \
+  --song-type edm \
+  --loud louder \
+  --report output/cleaned_report.json
+```
+
+* `--song-type` reuses WeaveShift's scoring-profile names (`custom`, `edm`, `vocal_trance`, `vocal_trance_strict`, `lounge`, `jazz`, `heart`, `cinematic`) to tune how aggressively each fix applies.
+* `--intensity` is `light`, `balanced` (default), or `strong`.
+* `--loud` sets the export target: `louder` (+1.5 dB over the input, default), `match` (same loudness as the input), or `streaming` (−14 LUFS).
+* `--report` writes a JSON "what changed" summary alongside the usual console output.
+
+Or run it automatically on every input track before transition analysis and mixing, by adding `--cleanup` to either CLI:
+
+```bash
+python weaveshift_two_tracks.py "Track A.wav" "Track B.wav" -o output/transition.wav \
+  --cleanup --cleanup-song-type edm
+
+python weaveshift_setlist.py examples/setlist_example.json -o output/mix.wav \
+  --apply-manifest-settings --cleanup --cleanup-song-type vocal_trance
+```
+
+`--cleanup-song-type` defaults to whatever `--profile` is set to (when it names a cleanup preset) so one flag tunes both; `--cleanup-intensity`, `--cleanup-loud`, and `--cleanup-report-dir` (writes a per-track report) are also available. Cleanup runs before scoring and rendering, on a temporary copy of each track — the files you pass in are never modified, and everything downstream (vocal/beat analysis, transition scoring, the final render) uses the cleaned audio.
+
+This is a mix-polish pass, not source repair: it can't fix audio that was never generated, codec-like texture, or smeared/warbly vocals. For those, regenerate or extend the section in your generator.
+
 ## Scoring profiles
 
 Built-in profiles live under `configs/`:
@@ -724,6 +757,7 @@ weaveshift/
   weaveshift_rendering.py     # transition rendering
   weaveshift_reports.py       # JSON/CSV report builders
   weaveshift_plan.py          # plan/execute separation
+  weaveshift_cleanup.py       # mix-polish cleanup CLI/library (--cleanup)
 
   configs/
   examples/

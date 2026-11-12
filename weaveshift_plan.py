@@ -3,12 +3,14 @@ from __future__ import annotations
 
 import math
 import sys
+import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional, Sequence
 
 from pydub import AudioSegment
 
+from weaveshift_cleanup import CleanupOptions, cleaned_temp_copy
 from weaveshift_profiles import ScoringProfile, load_scoring_profile
 from weaveshift_audio import (
     MAX_OVERLAP_SEC,
@@ -430,116 +432,143 @@ def plan_setlist_mix(
     vocal_method: str = "heuristic",
     prefer_mps: bool = True,
     assembled_mix_len_ms: Optional[int] = None,
+    cleanup: Optional[CleanupOptions] = None,
 ) -> SetlistMixPlan:
-    """Analyze each junction and return a render-ready setlist plan."""
+    """Analyze each junction and return a render-ready setlist plan.
+
+    When ``cleanup`` is given, every track is first run through
+    weaveshift_cleanup's mix-polish pass and every downstream step uses the
+    cleaned copies; the returned plan's ``tracks`` field still lists the
+    original track specs (same titles/bpm/key, original paths).
+    """
     settings = dict(manifest_settings or {})
-    scoring_profile = load_scoring_profile(profile, scoring_config) if transition_mode == "profile" else None
-    effective_search_a_sec, effective_search_b_sec = _effective_search_windows(
-        search_a_sec, search_b_sec, max_trim_a_sec, b_cue_max_sec, scoring_profile
-    )
+    original_tracks = list(tracks)
 
-    wav_infos, segments = validate_setlist_formats(tracks)
-    source_zero_in_mix_sec: List[float] = [0.0]
-    junctions: List[JunctionPlan] = []
-    mix_len_ms = assembled_mix_len_ms if assembled_mix_len_ms is not None else len(segments[0])
-
-    for i in range(len(tracks) - 1):
-        a_spec, b_spec = tracks[i], tracks[i + 1]
-        override_item = transition_override(settings, i + 1, a_spec.title, b_spec.title)
-        override_mode = None
-        if override_item:
-            override_mode = _override_mode(override_item)
-        selection_mode = override_mode or transition_mode
-        if selection_mode == "natural":
-            pause_sec = natural_pause_sec
-            if override_item:
-                pause_sec = coerce_float_override(override_item, "pause_sec", natural_pause_sec)
-            selected = build_natural_transition(len(segments[i]) / 1000.0, pause_sec, i + 1)
-            a_analysis = None
-            b_analysis = None
-            candidates: List[TransitionCandidate] = []
-            ranked: list[dict[str, object]] = []
+    cleanup_tmpdir: Optional[tempfile.TemporaryDirectory] = None
+    try:
+        if cleanup is not None:
+            cleanup_tmpdir = tempfile.TemporaryDirectory(prefix="weaveshift_cleanup_")
+            workdir = Path(cleanup_tmpdir.name)
+            print(f"Cleaning {len(original_tracks)} track(s) before mixing (song type: {cleanup.song_type})...")
+            cleaned_specs: List[TrackSpec] = []
+            for i, spec in enumerate(original_tracks):
+                original_path = validate_audio_input(spec.path, f"Track {i + 1}")
+                cleaned_path = cleaned_temp_copy(original_path, workdir, cleanup, f"track_{i + 1}")
+                cleaned_specs.append(TrackSpec(path=str(cleaned_path), title=spec.title, bpm=spec.bpm, key=spec.key))
+            tracks = cleaned_specs
         else:
-            a_analysis = analyze_audio(
-                a_spec.path,
-                role="a",
-                window_sec=effective_search_a_sec,
-                manual_bpm=a_spec.bpm,
-                manual_key=a_spec.key,
-                vocal_method=vocal_method,
-                prefer_mps=prefer_mps,
-            )
-            b_analysis = analyze_audio(
-                b_spec.path,
-                role="b",
-                window_sec=effective_search_b_sec,
-                manual_bpm=b_spec.bpm,
-                manual_key=b_spec.key,
-                vocal_method=vocal_method,
-                prefer_mps=prefer_mps,
-            )
-            candidates = choose_candidates(
-                a_analysis, b_analysis, max_trim_a_sec, b_cue_max_sec, scoring_profile=scoring_profile
-            )
-            base_selection_mode = "recommended" if override_mode in ("manual", "handoff") else selection_mode
-            selected = select_candidate(candidates, base_selection_mode, i + 1)
-            if override_item and override_mode == "handoff":
-                selected = apply_handoff_transition_override(selected, override_item, i + 1, a_analysis, b_analysis)
-            elif override_item and (
-                override_mode == "manual"
-                or any(k in override_item for k in ("a_fade_start_sec", "a_cut_sec", "b_cue_sec", "overlap_sec", "b_gain_db"))
-            ):
-                selected = apply_manual_transition_override(selected, override_item, i + 1, a_analysis, b_analysis)
-            ranked = ranked_candidate_summary(candidates)
+            tracks = original_tracks
 
-        current_a_zero = source_zero_in_mix_sec[i]
-        mix_transition_start_sec = current_a_zero + selected.a_fade_start_sec
-        mix_transition_start_ms = int(round(mix_transition_start_sec * 1000))
-        if mix_transition_start_ms < 0 or mix_transition_start_ms > mix_len_ms:
-            raise ValueError(
-                f"Transition #{i+1} maps outside the assembled mix: {mix_transition_start_sec:.3f}s. "
-                "This usually means a prior transition mapping failed."
-            )
-
-        pause_sec = selected.pause_sec if isinstance(selected, NaturalTransition) else 0.0
-        b_start_in_mix_sec = current_a_zero + candidate_b_start_offset_sec(selected) + pause_sec
-        next_zero = b_start_in_mix_sec - selected.b_cue_sec
-        if next_zero < -1e-6:
-            raise ValueError(
-                f"Transition #{i+1} maps Track B source zero before the start of the assembled mix: "
-                f"next_zero={next_zero:.3f}s, transition_start={mix_transition_start_sec:.3f}s, "
-                f"b_cue={selected.b_cue_sec:.3f}s. Reduce --b-cue-max-sec or use a later Track A transition point."
-            )
-        source_zero_in_mix_sec.append(next_zero)
-
-        junctions.append(
-            JunctionPlan(
-                index=i + 1,
-                from_title=a_spec.title,
-                to_title=b_spec.title,
-                track_a_analysis=a_analysis,
-                track_b_analysis=b_analysis,
-                candidates=candidates,
-                ranked=ranked,
-                selected=selected,
-                override_mode=override_mode,
-                mix_transition_start_sec=round(mix_transition_start_sec, 3),
-                next_track_source_zero_in_mix_sec=round(next_zero, 3),
-            )
+        scoring_profile = load_scoring_profile(profile, scoring_config) if transition_mode == "profile" else None
+        effective_search_a_sec, effective_search_b_sec = _effective_search_windows(
+            search_a_sec, search_b_sec, max_trim_a_sec, b_cue_max_sec, scoring_profile
         )
-        mix_len_ms = int(round(next_zero * 1000)) + len(segments[i + 1])
 
-    return SetlistMixPlan(
-        tracks=list(tracks),
-        junctions=junctions,
-        scoring_profile=scoring_profile,
-        wav_infos=wav_infos,
-        effective_search_a_sec=effective_search_a_sec,
-        effective_search_b_sec=effective_search_b_sec,
-        source_zero_in_mix_sec=source_zero_in_mix_sec,
-        manifest_settings=settings,
-        segments=segments,
-    )
+        wav_infos, segments = validate_setlist_formats(tracks)
+        source_zero_in_mix_sec: List[float] = [0.0]
+        junctions: List[JunctionPlan] = []
+        mix_len_ms = assembled_mix_len_ms if assembled_mix_len_ms is not None else len(segments[0])
+
+        for i in range(len(tracks) - 1):
+            a_spec, b_spec = tracks[i], tracks[i + 1]
+            override_item = transition_override(settings, i + 1, a_spec.title, b_spec.title)
+            override_mode = None
+            if override_item:
+                override_mode = _override_mode(override_item)
+            selection_mode = override_mode or transition_mode
+            if selection_mode == "natural":
+                pause_sec = natural_pause_sec
+                if override_item:
+                    pause_sec = coerce_float_override(override_item, "pause_sec", natural_pause_sec)
+                selected = build_natural_transition(len(segments[i]) / 1000.0, pause_sec, i + 1)
+                a_analysis = None
+                b_analysis = None
+                candidates: List[TransitionCandidate] = []
+                ranked: list[dict[str, object]] = []
+            else:
+                a_analysis = analyze_audio(
+                    a_spec.path,
+                    role="a",
+                    window_sec=effective_search_a_sec,
+                    manual_bpm=a_spec.bpm,
+                    manual_key=a_spec.key,
+                    vocal_method=vocal_method,
+                    prefer_mps=prefer_mps,
+                )
+                b_analysis = analyze_audio(
+                    b_spec.path,
+                    role="b",
+                    window_sec=effective_search_b_sec,
+                    manual_bpm=b_spec.bpm,
+                    manual_key=b_spec.key,
+                    vocal_method=vocal_method,
+                    prefer_mps=prefer_mps,
+                )
+                candidates = choose_candidates(
+                    a_analysis, b_analysis, max_trim_a_sec, b_cue_max_sec, scoring_profile=scoring_profile
+                )
+                base_selection_mode = "recommended" if override_mode in ("manual", "handoff") else selection_mode
+                selected = select_candidate(candidates, base_selection_mode, i + 1)
+                if override_item and override_mode == "handoff":
+                    selected = apply_handoff_transition_override(selected, override_item, i + 1, a_analysis, b_analysis)
+                elif override_item and (
+                    override_mode == "manual"
+                    or any(k in override_item for k in ("a_fade_start_sec", "a_cut_sec", "b_cue_sec", "overlap_sec", "b_gain_db"))
+                ):
+                    selected = apply_manual_transition_override(selected, override_item, i + 1, a_analysis, b_analysis)
+                ranked = ranked_candidate_summary(candidates)
+
+            current_a_zero = source_zero_in_mix_sec[i]
+            mix_transition_start_sec = current_a_zero + selected.a_fade_start_sec
+            mix_transition_start_ms = int(round(mix_transition_start_sec * 1000))
+            if mix_transition_start_ms < 0 or mix_transition_start_ms > mix_len_ms:
+                raise ValueError(
+                    f"Transition #{i+1} maps outside the assembled mix: {mix_transition_start_sec:.3f}s. "
+                    "This usually means a prior transition mapping failed."
+                )
+
+            pause_sec = selected.pause_sec if isinstance(selected, NaturalTransition) else 0.0
+            b_start_in_mix_sec = current_a_zero + candidate_b_start_offset_sec(selected) + pause_sec
+            next_zero = b_start_in_mix_sec - selected.b_cue_sec
+            if next_zero < -1e-6:
+                raise ValueError(
+                    f"Transition #{i+1} maps Track B source zero before the start of the assembled mix: "
+                    f"next_zero={next_zero:.3f}s, transition_start={mix_transition_start_sec:.3f}s, "
+                    f"b_cue={selected.b_cue_sec:.3f}s. Reduce --b-cue-max-sec or use a later Track A transition point."
+                )
+            source_zero_in_mix_sec.append(next_zero)
+
+            junctions.append(
+                JunctionPlan(
+                    index=i + 1,
+                    from_title=a_spec.title,
+                    to_title=b_spec.title,
+                    track_a_analysis=a_analysis,
+                    track_b_analysis=b_analysis,
+                    candidates=candidates,
+                    ranked=ranked,
+                    selected=selected,
+                    override_mode=override_mode,
+                    mix_transition_start_sec=round(mix_transition_start_sec, 3),
+                    next_track_source_zero_in_mix_sec=round(next_zero, 3),
+                )
+            )
+            mix_len_ms = int(round(next_zero * 1000)) + len(segments[i + 1])
+
+        return SetlistMixPlan(
+            tracks=list(original_tracks),
+            junctions=junctions,
+            scoring_profile=scoring_profile,
+            wav_infos=wav_infos,
+            effective_search_a_sec=effective_search_a_sec,
+            effective_search_b_sec=effective_search_b_sec,
+            source_zero_in_mix_sec=source_zero_in_mix_sec,
+            manifest_settings=settings,
+            segments=segments,
+        )
+    finally:
+        if cleanup_tmpdir is not None:
+            cleanup_tmpdir.cleanup()
 
 
 def plan_two_track_mix(
@@ -559,8 +588,17 @@ def plan_two_track_mix(
     b_key: Optional[str] = None,
     vocal_method: str = "auto",
     prefer_mps: bool = True,
+    cleanup: Optional[CleanupOptions] = None,
 ) -> TwoTrackMixPlan:
-    """Analyze both tracks, score candidates, and return a render-ready plan."""
+    """Analyze both tracks, score candidates, and return a render-ready plan.
+
+    When ``cleanup`` is given, each track is first run through
+    weaveshift_cleanup's mix-polish pass (see that module), and every
+    downstream step -- segment loading, transition analysis, scoring,
+    rendering -- operates on the cleaned audio instead of the original
+    files. ``track_a_wav_info``/``track_b_wav_info`` on the returned plan
+    still describe the original source files.
+    """
     track_a_path = validate_audio_input(track_a, "Track A")
     track_b_path = validate_audio_input(track_b, "Track B")
     for p in (track_a_path, track_b_path):
@@ -574,55 +612,68 @@ def plan_two_track_mix(
         search_a_sec, search_b_sec, max_trim_a_sec, b_cue_max_sec, scoring_profile
     )
 
-    seg_a = load_audio_segment(track_a_path)
-    seg_b = load_audio_segment(track_b_path)
-    validate_loaded_segment_parity(seg_a, seg_b)
+    cleanup_tmpdir: Optional[tempfile.TemporaryDirectory] = None
+    analysis_a_path, analysis_b_path = track_a_path, track_b_path
+    try:
+        if cleanup is not None:
+            cleanup_tmpdir = tempfile.TemporaryDirectory(prefix="weaveshift_cleanup_")
+            workdir = Path(cleanup_tmpdir.name)
+            print(f"Cleaning Track A and Track B before mixing (song type: {cleanup.song_type})...")
+            analysis_a_path = cleaned_temp_copy(track_a_path, workdir, cleanup, "track_a")
+            analysis_b_path = cleaned_temp_copy(track_b_path, workdir, cleanup, "track_b")
 
-    a_analysis = analyze_audio(
-        str(track_a_path),
-        role="a",
-        window_sec=effective_search_a_sec,
-        manual_bpm=a_bpm,
-        manual_key=a_key,
-        vocal_method=vocal_method,
-        prefer_mps=prefer_mps,
-    )
-    b_analysis = analyze_audio(
-        str(track_b_path),
-        role="b",
-        window_sec=effective_search_b_sec,
-        manual_bpm=b_bpm,
-        manual_key=b_key,
-        vocal_method=vocal_method,
-        prefer_mps=prefer_mps,
-    )
+        seg_a = load_audio_segment(analysis_a_path)
+        seg_b = load_audio_segment(analysis_b_path)
+        validate_loaded_segment_parity(seg_a, seg_b)
 
-    candidates = choose_candidates(
-        a_analysis, b_analysis, max_trim_a_sec, b_cue_max_sec, scoring_profile=scoring_profile
-    )
-    if not candidates:
-        raise ValueError(
-            "No valid transition candidates were generated. Track A may be too short for the requested "
-            "search/overlap settings, or the candidate limits are too restrictive."
+        a_analysis = analyze_audio(
+            str(analysis_a_path),
+            role="a",
+            window_sec=effective_search_a_sec,
+            manual_bpm=a_bpm,
+            manual_key=a_key,
+            vocal_method=vocal_method,
+            prefer_mps=prefer_mps,
+        )
+        b_analysis = analyze_audio(
+            str(analysis_b_path),
+            role="b",
+            window_sec=effective_search_b_sec,
+            manual_bpm=b_bpm,
+            manual_key=b_key,
+            vocal_method=vocal_method,
+            prefer_mps=prefer_mps,
         )
 
-    candidates = filter_candidates_by_mode(candidates, mode)
-    ranked = ranked_candidate_summary(candidates)
-    recommended = ranked[0]["name"] if ranked else None
+        candidates = choose_candidates(
+            a_analysis, b_analysis, max_trim_a_sec, b_cue_max_sec, scoring_profile=scoring_profile
+        )
+        if not candidates:
+            raise ValueError(
+                "No valid transition candidates were generated. Track A may be too short for the requested "
+                "search/overlap settings, or the candidate limits are too restrictive."
+            )
 
-    return TwoTrackMixPlan(
-        track_a_path=track_a_path,
-        track_b_path=track_b_path,
-        track_a_wav_info=a_wav_info,
-        track_b_wav_info=b_wav_info,
-        track_a_analysis=a_analysis,
-        track_b_analysis=b_analysis,
-        seg_a=seg_a,
-        seg_b=seg_b,
-        candidates=candidates,
-        ranked=ranked,
-        recommended_name=recommended,
-        scoring_profile=scoring_profile,
-        effective_search_a_sec=effective_search_a_sec,
-        effective_search_b_sec=effective_search_b_sec,
-    )
+        candidates = filter_candidates_by_mode(candidates, mode)
+        ranked = ranked_candidate_summary(candidates)
+        recommended = ranked[0]["name"] if ranked else None
+
+        return TwoTrackMixPlan(
+            track_a_path=track_a_path,
+            track_b_path=track_b_path,
+            track_a_wav_info=a_wav_info,
+            track_b_wav_info=b_wav_info,
+            track_a_analysis=a_analysis,
+            track_b_analysis=b_analysis,
+            seg_a=seg_a,
+            seg_b=seg_b,
+            candidates=candidates,
+            ranked=ranked,
+            recommended_name=recommended,
+            scoring_profile=scoring_profile,
+            effective_search_a_sec=effective_search_a_sec,
+            effective_search_b_sec=effective_search_b_sec,
+        )
+    finally:
+        if cleanup_tmpdir is not None:
+            cleanup_tmpdir.cleanup()

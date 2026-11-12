@@ -4,6 +4,10 @@ All notable changes to WeaveShift will be documented in this file.
 
 ## Unreleased
 
+### Added
+
+- `weaveshift_cleanup.py`: a mix-polish cleanup pass for AI-generated songs and stems (low tighten, mud cut, de-fizz, air, loudness leveling, true-peak-safe −1 dBTP export ceiling), runnable standalone or via a new `--cleanup` flag on `weaveshift_two_tracks.py` and `weaveshift_setlist.py` that cleans every input track before transition analysis and mixing. Cleanup presets (`--cleanup-song-type`) reuse the existing scoring-profile names (`edm`, `vocal_trance`, `vocal_trance_strict`, `lounge`, `jazz`, `heart`, `cinematic`, plus `custom`).
+
 ## 1.1.0 - 2026-07-27
 
 ### Changed

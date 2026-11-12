@@ -63,6 +63,7 @@ Issues = "https://github.com/sherwinlu/weaveshift/issues"
 weaveshift-two-tracks = "weaveshift_two_tracks:main"
 weaveshift-setlist = "weaveshift_setlist:main"
 weaveshift-cues = "weaveshift_cues:main"
+weaveshift-cleanup = "weaveshift_cleanup:main"
 
 [tool.setuptools]
 py-modules = [
@@ -75,6 +76,7 @@ py-modules = [
   "weaveshift_reports",
   "weaveshift_plan",
   "weaveshift_cues",
+  "weaveshift_cleanup",
 ]
 
 [tool.setuptools.data-files]
@@ -91,4 +93,4 @@ py-modules = [
 [tool.pytest.ini_options]
 pythonpath = ["."]
 testpaths = ["tests"]
-addopts = "--cov=weaveshift_audio --cov=weaveshift_scoring --cov=weaveshift_rendering --cov=weaveshift_reports --cov=weaveshift_plan --cov=weaveshift_profiles --cov-report=term-missing:skip-covered --cov-fail-under=70"
+addopts = "--cov=weaveshift_audio --cov=weaveshift_scoring --cov=weaveshift_rendering --cov=weaveshift_reports --cov=weaveshift_plan --cov=weaveshift_profiles --cov=weaveshift_cleanup --cov-report=term-missing:skip-covered --cov-fail-under=70"

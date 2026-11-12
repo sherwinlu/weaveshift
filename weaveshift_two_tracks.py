@@ -11,6 +11,7 @@ from typing import Any, Dict, List, Optional, cast
 
 from pydub import AudioSegment
 
+from weaveshift_cleanup import CleanupOptions, SONG_TYPES as CLEANUP_SONG_TYPES, INTENSITY as CLEANUP_INTENSITY, LOUD_MODES as CLEANUP_LOUD_MODES
 from weaveshift_profiles import load_scoring_profile
 from weaveshift_audio import (
     AudioAnalysis,
@@ -95,6 +96,19 @@ def run(args) -> None:
             file=sys.stderr,
         )
 
+    cleanup = None
+    if getattr(args, "cleanup", False):
+        cleanup_song_type = getattr(args, "cleanup_song_type", None)
+        if cleanup_song_type is None:
+            cleanup_song_type = args.profile if args.profile in CLEANUP_SONG_TYPES else "custom"
+        cleanup_report_dir = getattr(args, "cleanup_report_dir", None)
+        cleanup = CleanupOptions(
+            song_type=cleanup_song_type,
+            intensity=getattr(args, "cleanup_intensity", "balanced"),
+            loud=getattr(args, "cleanup_loud", "louder"),
+            report_dir=Path(cleanup_report_dir) if cleanup_report_dir else None,
+        )
+
     mix_plan = plan_two_track_mix(
         args.track_a,
         args.track_b,
@@ -111,6 +125,7 @@ def run(args) -> None:
         b_key=args.b_key,
         vocal_method=args.vocal_method,
         prefer_mps=not args.no_mps,
+        cleanup=cleanup,
     )
 
     a_wav_info = mix_plan.track_a_wav_info
@@ -233,6 +248,26 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--b-bpm", type=float, default=None, help="Manual Track B BPM override")
     p.add_argument("--a-key", type=str, default=None, help="Manual Track A key override, e.g. 'E major'")
     p.add_argument("--b-key", type=str, default=None, help="Manual Track B key override, e.g. 'A minor'")
+    p.add_argument(
+        "--cleanup",
+        action="store_true",
+        help="Run a CLEANROOM-style mix-polish pass (low tighten, mud/fizz cut, air, leveler, true-peak ceiling) "
+        "on both tracks before analysis and mixing",
+    )
+    p.add_argument(
+        "--cleanup-song-type",
+        choices=list(CLEANUP_SONG_TYPES),
+        default=None,
+        help="Cleanup Song Type preset; defaults to --profile's value when it names a cleanup preset, else 'custom'",
+    )
+    p.add_argument("--cleanup-intensity", choices=list(CLEANUP_INTENSITY), default="balanced", help="How hard the cleanup pass applies its fixes")
+    p.add_argument(
+        "--cleanup-loud",
+        choices=list(CLEANUP_LOUD_MODES),
+        default="louder",
+        help="Cleanup export loudness target: louder (+1.5 dB), match (same as input), or streaming (-14 LUFS)",
+    )
+    p.add_argument("--cleanup-report-dir", default=None, help="Directory to write per-track cleanup 'what changed' JSON reports")
     return p
 
 
