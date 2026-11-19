@@ -26,6 +26,7 @@ from weaveshift.audio import (
     librosa,
     load_mono_analysis_audio,
     lossy_input_note,
+    resample_for_analysis,
     safe_float,
     validate_audio_input,
 )
@@ -444,25 +445,28 @@ def analyze_track(audio_file: Path, bpm_hint: Optional[float]) -> Tuple[float, O
     y_native, sr_native, _duration_probe = load_mono_analysis_audio(audio_file)
     sr = 22050
     with suppress_audio_warnings():
-        y = librosa.resample(y_native, orig_sr=sr_native, target_sr=sr) if sr_native != sr else y_native
+        y = resample_for_analysis(y_native, sr_native, sr)
         duration_sec = float(librosa.get_duration(y=y, sr=sr))
 
         hop_length = 512
 
         rms = librosa.feature.rms(y=y, frame_length=2048, hop_length=hop_length)[0]
-        times = librosa.frames_to_time(np.arange(len(rms)), sr=sr, hop_length=hop_length)
+        def frame_times(frames: np.ndarray) -> np.ndarray:
+            return librosa.frames_to_time(np.arange(len(frames)), sr=sr, hop_length=hop_length)
+
+        times = frame_times(rms)
         frame_step = median_step_sec(times)
         rms_db = librosa.power_to_db(np.maximum(rms, 1e-10) ** 2, ref=np.max)
         energy = moving_average(rms_db, max(3, int(round(2.5 / frame_step))))
 
         onset_env = librosa.onset.onset_strength(y=y, sr=sr, hop_length=hop_length)
-        onset_times = librosa.frames_to_time(np.arange(len(onset_env)), sr=sr, hop_length=hop_length)
+        onset_times = frame_times(onset_env)
         onset_smooth = moving_average(onset_env, max(3, int(round(2.0 / median_step_sec(onset_times)))))
 
         onset_interp = np.interp(times, onset_times, onset_smooth)
 
         centroid = librosa.feature.spectral_centroid(y=y, sr=sr, hop_length=hop_length)[0]
-        centroid = np.interp(times, librosa.frames_to_time(np.arange(len(centroid)), sr=sr, hop_length=hop_length), centroid)
+        centroid = np.interp(times, frame_times(centroid), centroid)
         centroid_z = robust_z(moving_average(centroid, max(3, int(round(3.0 / frame_step)))))
 
     energy_z = robust_z(energy)
@@ -506,8 +510,8 @@ def analyze_track(audio_file: Path, bpm_hint: Optional[float]) -> Tuple[float, O
     main_peak = peak_candidates[0] if peak_candidates else None
     second_peak = None
 
-    if peak_candidates:
-        later = [p for p in peak_candidates if main_peak is not None and p > main_peak + 35.0]
+    if main_peak is not None:
+        later = [p for p in peak_candidates if p > main_peak + 35.0]
         if later:
             second_peak = later[0]
         elif len(peak_candidates) > 1:
@@ -515,18 +519,13 @@ def analyze_track(audio_file: Path, bpm_hint: Optional[float]) -> Tuple[float, O
 
     breakdown = find_breakdown_candidate(times, energy, duration_sec)
 
-    confidence_bits = []
+    confidence = "low"
     if main_peak is not None:
-        score_at_peak = float(np.interp(main_peak, times, score))
-        pctl = float(np.mean(score <= score_at_peak))
+        pctl = float(np.mean(score <= float(np.interp(main_peak, times, score))))
         if pctl > 0.92:
-            confidence_bits.append("high")
+            confidence = "high"
         elif pctl > 0.80:
-            confidence_bits.append("medium")
-        else:
-            confidence_bits.append("low")
-    else:
-        confidence_bits.append("low")
+            confidence = "medium"
 
     notes = []
     if bpm_hint and bpm_detected and abs(bpm_detected - bpm_hint) > 4:
@@ -543,7 +542,7 @@ def analyze_track(audio_file: Path, bpm_hint: Optional[float]) -> Tuple[float, O
         "breakdown": breakdown,
     }
 
-    return duration_sec, bpm_detected, cues, confidence_bits[0], " ".join(notes)
+    return duration_sec, bpm_detected, cues, confidence, " ".join(notes)
 
 
 def add_final_time(final_start: Optional[float], source_time: Optional[float]) -> Optional[float]:

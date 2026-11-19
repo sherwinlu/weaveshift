@@ -282,18 +282,22 @@ def read_audio_window(path: str, start_sec: float, duration_sec: float) -> Tuple
     return _audio_segment_to_stereo_float32(seg)
 
 
+def to_mono(y_frames: np.ndarray) -> np.ndarray:
+    """Average a (frames, channels) float array down to mono float32."""
+    return np.mean(y_frames, axis=1).astype(np.float32) if y_frames.size else np.zeros(0, dtype=np.float32)
+
+
+def resample_for_analysis(y: np.ndarray, orig_sr: int, target_sr: int) -> np.ndarray:
+    return librosa.resample(y, orig_sr=orig_sr, target_sr=target_sr) if orig_sr != target_sr else y
+
+
 def load_mono_analysis_audio(path: str | Path) -> Tuple[np.ndarray, int, float]:
     """Load a full track as mono float32 for librosa analysis (WAV or MP3)."""
     p = Path(path)
     meta = audio_info(p)
     duration_sec = float(meta["duration_sec"])  # pyright: ignore[reportArgumentType]
     y_stereo, sr_native = read_audio_window(str(p), 0.0, duration_sec)
-    y_mono = (
-        np.mean(y_stereo, axis=1).astype(np.float32)
-        if y_stereo.size
-        else np.zeros(0, dtype=np.float32)
-    )
-    return y_mono, int(sr_native), duration_sec
+    return to_mono(y_stereo), int(sr_native), duration_sec
 
 
 def validate_loaded_segment_parity(seg_a: AudioSegment, seg_b: AudioSegment) -> None:
@@ -819,7 +823,7 @@ def _segments_from_vocals_wav(vocals_path: Path, start_sec: float, duration_sec:
     data, sr_read = sf.read(str(vocals_path), start=frame_start, stop=frame_stop, always_2d=True, dtype="float32")
     if data.size == 0:
         return []
-    vocals_mono = np.mean(data, axis=1).astype(np.float32)
+    vocals_mono = to_mono(data)
     return _vocal_segments_from_mono(vocals_mono, int(sr_read), start_sec, threshold_db)
 
 
@@ -946,16 +950,21 @@ def analyze_vocals(
     return segs, "heuristic"
 
 
+def _vocal_active_mask(segments: Sequence[VocalSegment], times: np.ndarray) -> np.ndarray:
+    """Boolean mask of the sample times that fall inside any vocal segment."""
+    active = np.zeros(len(times), dtype=bool)
+    for seg in segments:
+        active |= (times >= seg.start_sec) & (times <= seg.end_sec)
+    return active
+
+
 def vocal_active_fraction(segments: Sequence[VocalSegment], start: float, end: float, step: float = 0.1) -> float:
     if end <= start:
         return 0.0
     t = np.arange(start, end, step)
     if len(t) == 0:
         return 0.0
-    active = np.zeros(len(t), dtype=bool)
-    for seg in segments:
-        active |= (t >= seg.start_sec) & (t <= seg.end_sec)
-    return float(np.mean(active))
+    return float(np.mean(_vocal_active_mask(segments, t)))
 
 
 def overlap_vocal_collision(
@@ -972,13 +981,8 @@ def overlap_vocal_collision(
     t = np.arange(0, overlap, step)
     if len(t) == 0:
         return 0.0
-    a_active = np.zeros(len(t), dtype=bool)
-    b_active = np.zeros(len(t), dtype=bool)
-    for seg in a_segments:
-        a_active |= ((a_start + t) >= seg.start_sec) & ((a_start + t) <= seg.end_sec)
-    for seg in b_segments:
-        b_active |= ((b_start + t) >= seg.start_sec) & ((b_start + t) <= seg.end_sec)
-    return float(np.mean(a_active & b_active))
+    both = _vocal_active_mask(a_segments, a_start + t) & _vocal_active_mask(b_segments, b_start + t)
+    return float(np.mean(both))
 
 
 # -----------------------------
@@ -1009,32 +1013,22 @@ def analyze_audio(
     rms_db, peak_db = stereo_dbfs_from_samples(y_stereo)
     energy_curve = compute_local_energy_curve(y_stereo, sr, start)
     loudness_curve = compute_local_lufs_curve(y_stereo, sr, start)
-    y_mono = np.mean(y_stereo, axis=1).astype(np.float32) if y_stereo.size else np.array([], dtype=np.float32)
+    y_mono = to_mono(y_stereo)
     y_chunk = y_stereo.T  # channels-first for librosa.to_mono in heuristic vocal analysis
 
     # Tempo / beat analysis: Track A uses the outro window; Track B uses the intro.
-    beat_load_offset = start if role == "a" else 0.0
     beat_load_dur = min(dur if role == "a" else duration_sec, 180.0)
     try:
-        # Reuse the already-loaded mono window when offset and duration match (e.g. Track A),
+        # Reuse the already-loaded mono window when the span matches (e.g. Track A),
         # avoiding a redundant disk read or second ffmpeg decode.
-        if abs(beat_load_offset - start) < 1e-6 and abs(beat_load_dur - dur) < 1e-6:
-            y_tempo_native = y_mono
-            sr_tempo_native = sr
+        if abs(beat_load_dur - dur) < 1e-6:
+            y_tempo_native, sr_tempo_native = y_mono, sr
         else:
-            y_tempo_stereo, sr_tempo_native = read_audio_window(path, beat_load_offset, beat_load_dur)
-            y_tempo_native = (
-                np.mean(y_tempo_stereo, axis=1).astype(np.float32)
-                if y_tempo_stereo.size
-                else np.zeros(0, dtype=np.float32)
-            )
+            y_tempo_stereo, sr_tempo_native = read_audio_window(path, start, beat_load_dur)
+            y_tempo_native = to_mono(y_tempo_stereo)
         sr_tempo = 22050
         with suppress_audio_warnings():
-            y_tempo = (
-                librosa.resample(y_tempo_native, orig_sr=sr_tempo_native, target_sr=sr_tempo)
-                if sr_tempo_native != sr_tempo
-                else y_tempo_native
-            )
+            y_tempo = resample_for_analysis(y_tempo_native, sr_tempo_native, sr_tempo)
             tempo, beats = librosa.beat.beat_track(y=y_tempo, sr=sr_tempo, units="time")
         tempo = safe_float(np.asarray(tempo).flatten()[0] if np.asarray(tempo).size else tempo, None)
     except Exception as exc:
@@ -1061,19 +1055,8 @@ def analyze_audio(
         )
         onsets_abs = []
 
-    beats_abs = []
-    try:
-        for bt in np.asarray(beats).flatten().tolist():
-            bt_abs = round(beat_load_offset + float(bt), 3)
-            if start <= bt_abs <= start + dur:
-                beats_abs.append(bt_abs)
-    except Exception as exc:
-        logger.warning(
-            "Beat window filtering failed for %s; continuing without beats. stage=beats path=%s reason=%s",
-            Path(path).name,
-            path,
-            type(exc).__name__,
-        )
+    beats_abs = [round(start + float(bt), 3) for bt in np.asarray(beats).flatten()]
+    beats_abs = [bt for bt in beats_abs if start <= bt <= start + dur]
 
     est_key, est_camelot = estimate_key(y_mono, sr)
     manual_key_norm, manual_cam = parse_manual_key(manual_key)
