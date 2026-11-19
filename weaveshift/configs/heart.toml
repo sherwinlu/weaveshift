@@ -1,0 +1,28 @@
+name = "heart"
+description = "Love songs, heartbreak ballads, and emotional continuous listening."
+
+[weights]
+vocal_collision = 2.00
+beat_alignment = 0.15
+energy = 0.65
+loudness = 1.20
+compatibility = 1.10
+placement = 1.60
+overlap_preference = 1.10
+gain_penalty = 1.50
+tail_trim_penalty = 2.20
+cue_depth_penalty = 1.00
+
+[preferences]
+target_overlap_sec = 10.0
+preferred_overlap_min_sec = 6.0
+preferred_overlap_max_sec = 18.0
+prefer_beat_alignment = false
+prefer_vocal_safety = true
+
+[limits]
+max_abs_b_gain_db = 2.0
+max_tail_trim_sec = 2.0
+max_b_cue_sec = 8.0
+max_vocal_collision_score = 0.20
+min_beat_alignment = 0.0

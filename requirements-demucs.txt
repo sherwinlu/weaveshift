@@ -1,0 +1,8 @@
+# Optional neural vocal separation stack.
+# Prefer: pip install -e ".[demucs]"
+-r requirements.txt
+torch
+torchaudio
+demucs
+# Required by newer torchaudio save paths used by Demucs on Python 3.14+.
+torchcodec; python_version >= "3.14"

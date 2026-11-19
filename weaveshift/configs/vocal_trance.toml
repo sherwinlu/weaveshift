@@ -1,0 +1,28 @@
+name = "vocal_trance"
+description = "Beat-aware euphoric vocal trance profile with stronger vocal and breakdown protection."
+
+[weights]
+vocal_collision = 1.80
+beat_alignment = 1.35
+energy = 1.10
+loudness = 1.10
+compatibility = 1.00
+placement = 1.00
+overlap_preference = 1.00
+gain_penalty = 1.20
+tail_trim_penalty = 1.30
+cue_depth_penalty = 0.65
+
+[preferences]
+target_overlap_sec = 8.0
+preferred_overlap_min_sec = 4.0
+preferred_overlap_max_sec = 12.0
+prefer_beat_alignment = true
+prefer_vocal_safety = true
+
+[limits]
+max_abs_b_gain_db = 3.0
+max_tail_trim_sec = 5.0
+max_b_cue_sec = 16.0
+max_vocal_collision_score = 0.25
+min_beat_alignment = 0.40

@@ -1,0 +1,33 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.env
+.pytest_cache/
+.mypy_cache/
+.coverage
+*.egg-info/
+
+# Audio outputs / large media (do not commit copyrighted or third-party masters)
+*.wav
+*.wave
+*.mp3
+*.aiff
+*.aif
+*.flac
+*.m4a
+*.aac
+# Generated reports and local manifests (keep shipped examples)
+*.json
+!examples/*.json
+
+# OS / editors
+.DS_Store
+.idea/
+.vscode/
+.weaveshift_demucs_cache/
+output/
+
+# Local Redis dump
+dump.rdb

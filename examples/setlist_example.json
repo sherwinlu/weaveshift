@@ -1,0 +1,12 @@
+{
+  "tracks": [
+    {"path": "fixtures/track_01.wav", "title": "Demo 01", "bpm": 110, "key": "F major"},
+    {"path": "fixtures/track_02.wav", "title": "Demo 02", "bpm": 126, "key": "G major"},
+    {"path": "fixtures/track_03.wav", "title": "Demo 03", "bpm": 126, "key": "A major"}
+  ],
+  "settings": {
+    "transition_mode": "profile",
+    "profile": "edm",
+    "vocal_method": "heuristic"
+  }
+}

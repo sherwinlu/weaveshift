@@ -1,0 +1,4 @@
+# Test dependencies. Prefer: pip install -e ".[dev]"
+-r requirements.txt
+pytest>=8
+pytest-cov>=5

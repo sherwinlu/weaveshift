@@ -1,0 +1,28 @@
+name = "smooth"
+description = "Vocal-aware smooth handoff favoring 6-10s blends, modest gain, and shallow cues."
+
+[weights]
+vocal_collision = 2.00
+beat_alignment = 1.25
+energy = 1.00
+loudness = 1.00
+compatibility = 0.80
+placement = 1.00
+overlap_preference = 0.80
+gain_penalty = 1.30
+tail_trim_penalty = 1.10
+cue_depth_penalty = 1.00
+
+[preferences]
+target_overlap_sec = 8.0
+preferred_overlap_min_sec = 6.0
+preferred_overlap_max_sec = 10.0
+prefer_beat_alignment = true
+prefer_vocal_safety = true
+
+[limits]
+max_abs_b_gain_db = 2.5
+max_tail_trim_sec = 6.0
+max_b_cue_sec = 8.0
+max_vocal_collision_score = 0.25
+min_beat_alignment = 0.45

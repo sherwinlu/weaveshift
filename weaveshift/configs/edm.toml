@@ -1,0 +1,28 @@
+name = "edm"
+description = "Beat-aware workout / running mix profile."
+
+[weights]
+vocal_collision = 1.20
+beat_alignment = 1.40
+energy = 1.30
+loudness = 1.00
+compatibility = 0.80
+placement = 0.80
+overlap_preference = 0.70
+gain_penalty = 1.00
+tail_trim_penalty = 0.70
+cue_depth_penalty = 0.40
+
+[preferences]
+target_overlap_sec = 4.0
+preferred_overlap_min_sec = 2.0
+preferred_overlap_max_sec = 8.0
+prefer_beat_alignment = true
+prefer_vocal_safety = true
+
+[limits]
+max_abs_b_gain_db = 4.0
+max_tail_trim_sec = 8.0
+max_b_cue_sec = 12.0
+max_vocal_collision_score = 0.35
+min_beat_alignment = 0.45

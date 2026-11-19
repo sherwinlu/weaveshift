@@ -1,0 +1,28 @@
+name = "lounge"
+description = "Cinematic lounge / speakeasy / global nightclub background mix."
+
+[weights]
+vocal_collision = 1.60
+beat_alignment = 0.35
+energy = 0.75
+loudness = 1.20
+compatibility = 1.10
+placement = 1.20
+overlap_preference = 1.30
+gain_penalty = 1.30
+tail_trim_penalty = 1.60
+cue_depth_penalty = 0.70
+
+[preferences]
+target_overlap_sec = 10.0
+preferred_overlap_min_sec = 6.0
+preferred_overlap_max_sec = 15.0
+prefer_beat_alignment = false
+prefer_vocal_safety = true
+
+[limits]
+max_abs_b_gain_db = 2.5
+max_tail_trim_sec = 4.0
+max_b_cue_sec = 10.0
+max_vocal_collision_score = 0.30
+min_beat_alignment = 0.0

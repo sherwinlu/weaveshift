@@ -1,0 +1,28 @@
+name = "cinematic"
+description = "Narrative, soundtrack-like continuous listening profile for ambient, ballad, and atmospheric sets."
+
+[weights]
+vocal_collision = 1.70
+beat_alignment = 0.25
+energy = 0.70
+loudness = 1.20
+compatibility = 1.20
+placement = 1.40
+overlap_preference = 1.25
+gain_penalty = 1.40
+tail_trim_penalty = 1.90
+cue_depth_penalty = 0.85
+
+[preferences]
+target_overlap_sec = 11.0
+preferred_overlap_min_sec = 6.0
+preferred_overlap_max_sec = 18.0
+prefer_beat_alignment = false
+prefer_vocal_safety = true
+
+[limits]
+max_abs_b_gain_db = 2.25
+max_tail_trim_sec = 3.0
+max_b_cue_sec = 10.0
+max_vocal_collision_score = 0.30
+min_beat_alignment = 0.0

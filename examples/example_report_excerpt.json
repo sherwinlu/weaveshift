@@ -1,0 +1,42 @@
+{
+  "app": "WeaveShift 1.0.0",
+  "schema_version": "1.0.0",
+  "recommended_candidate": "vocal_safe",
+  "mode": "all",
+  "ranked_candidates": [
+    {
+      "rank": 1,
+      "name": "vocal_safe",
+      "score": 0.842,
+      "recommendation": "recommended",
+      "verdict": "Best technical balance; audition this first.",
+      "transition": {
+        "a_fade_start_sec": 206.0,
+        "a_cut_sec": 210.0,
+        "b_cue_sec": 0.0,
+        "overlap_sec": 4.0,
+        "b_gain_db": 0.0,
+        "trim_a_tail_sec": 1.0,
+        "new_song_starts_in_mix_sec": 206.0,
+        "new_song_starts_in_mix_timestamp": "3:26",
+        "track_b_source_cue_timestamp": "0:00"
+      },
+      "component_scores": {
+        "vocal_collision_risk": 0.0,
+        "beat_alignment": 0.9,
+        "energy": 0.88,
+        "placement": 0.92,
+        "loudness": 1.0,
+        "compatibility": 0.85
+      },
+      "notes": ["balanced candidate"]
+    }
+  ],
+  "track_a": {
+    "energy_curve_points": 120
+  },
+  "track_b": {
+    "energy_curve_points": 120
+  },
+  "outputs": []
+}

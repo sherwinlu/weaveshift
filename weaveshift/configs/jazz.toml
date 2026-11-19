@@ -1,0 +1,28 @@
+name = "jazz"
+description = "Organic jazz / blues / live-feel sequencing profile."
+
+[weights]
+vocal_collision = 1.80
+beat_alignment = 0.10
+energy = 0.55
+loudness = 1.10
+compatibility = 1.20
+placement = 1.50
+overlap_preference = 1.00
+gain_penalty = 1.40
+tail_trim_penalty = 2.00
+cue_depth_penalty = 0.90
+
+[preferences]
+target_overlap_sec = 8.0
+preferred_overlap_min_sec = 4.0
+preferred_overlap_max_sec = 14.0
+prefer_beat_alignment = false
+prefer_vocal_safety = true
+
+[limits]
+max_abs_b_gain_db = 2.0
+max_tail_trim_sec = 2.5
+max_b_cue_sec = 8.0
+max_vocal_collision_score = 0.25
+min_beat_alignment = 0.0
