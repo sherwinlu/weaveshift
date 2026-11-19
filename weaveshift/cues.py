@@ -141,54 +141,41 @@ def read_csv_dicts(path: Path) -> List[Dict[str, str]]:
         return list(csv.DictReader(f))
 
 
+def _track_from_row(row: Dict[str, str], missing_path_message: str) -> Track:
+    """Build a Track from a CSV row or stringified JSON object, accepting common column aliases."""
+    audio_path = get_first(row, ["path", "file", "filepath", "audio_path", "track_path"])
+    if not audio_path:
+        raise SystemExit(missing_path_message)
+    return Track(
+        path=audio_path,
+        title=get_first(row, ["title", "track", "name", "track_title"]) or Path(audio_path).stem,
+        bpm=parse_float(get_first(row, ["bpm", "tempo"])),
+        key=get_first(row, ["key", "camelot_key", "musical_key"]),
+        visual_mood=get_first(row, ["visual_mood", "mood", "visual", "prompt_mood"]),
+    )
+
+
 def read_tracks(path: Path) -> List[Track]:
     """Read tracks from either a CSV manifest or a JSON setlist manifest."""
-    if path.suffix.lower() == ".json":
-        data = json.loads(path.read_text(encoding="utf-8"))
-        tracks_raw = data.get("tracks") if isinstance(data, dict) else data
-        if not isinstance(tracks_raw, list) or not tracks_raw:
-            raise SystemExit("JSON manifest must contain a non-empty 'tracks' list.")
-        tracks: List[Track] = []
-        for item in tracks_raw:
-            if isinstance(item, str):
-                tracks.append(Track(path=item, title=Path(item).stem))
-            elif isinstance(item, dict):
-                str_row = {str(k): "" if v is None else str(v) for k, v in item.items()}
-                audio_path = get_first(str_row, ["path", "file", "filepath", "audio_path", "track_path"])
-                if not audio_path:
-                    raise SystemExit("Track manifest entry is missing a path/file field.")
-                title = get_first(str_row, ["title", "track", "name", "track_title"]) or Path(audio_path).stem
-                tracks.append(
-                    Track(
-                        path=audio_path,
-                        title=title,
-                        bpm=parse_float(get_first(str_row, ["bpm", "tempo"])),
-                        key=get_first(str_row, ["key", "camelot_key", "musical_key"]),
-                        visual_mood=get_first(str_row, ["visual_mood", "mood", "visual", "prompt_mood"]),
-                    )
-                )
-            else:
-                raise SystemExit("Each JSON track entry must be a string or an object.")
-        return tracks
+    if path.suffix.lower() != ".json":
+        return [
+            _track_from_row(row, "Track manifest row is missing a path/file/audio_path column.")
+            for row in read_csv_dicts(path)
+        ]
 
-    rows = read_csv_dicts(path)
-    tracks = []
-    for row in rows:
-        audio_path = get_first(row, ["path", "file", "filepath", "audio_path", "track_path"])
-        title = get_first(row, ["title", "track", "name", "track_title"])
-        if not audio_path:
-            raise SystemExit("Track manifest row is missing a path/file/audio_path column.")
-        if not title:
-            title = Path(audio_path).stem
-        tracks.append(
-            Track(
-                path=audio_path,
-                title=title,
-                bpm=parse_float(get_first(row, ["bpm", "tempo"])),
-                key=get_first(row, ["key", "camelot_key", "musical_key"]),
-                visual_mood=get_first(row, ["visual_mood", "mood", "visual", "prompt_mood"]),
-            )
-        )
+    data = json.loads(path.read_text(encoding="utf-8"))
+    tracks_raw = data.get("tracks") if isinstance(data, dict) else data
+    if not isinstance(tracks_raw, list) or not tracks_raw:
+        raise SystemExit("JSON manifest must contain a non-empty 'tracks' list.")
+    tracks: List[Track] = []
+    for item in tracks_raw:
+        if isinstance(item, str):
+            tracks.append(Track(path=item, title=Path(item).stem))
+        elif isinstance(item, dict):
+            str_row = {str(k): "" if v is None else str(v) for k, v in item.items()}
+            tracks.append(_track_from_row(str_row, "Track manifest entry is missing a path/file field."))
+        else:
+            raise SystemExit("Each JSON track entry must be a string or an object.")
     return tracks
 
 
@@ -569,83 +556,61 @@ def add_final_time(final_start: Optional[float], source_time: Optional[float]) -
 # Output
 # -----------------------------
 
-def write_results(path: Path, results: List[CueResult]) -> None:
-    fieldnames = [
-        "title",
-        "path",
-        "bpm_manifest",
-        "bpm_detected",
-        "key",
-        "duration_sec",
-        "duration_timestamp",
-        "final_start_sec",
-        "final_start_timestamp",
-        "first_lift_source_sec",
-        "first_lift_source_timestamp",
-        "first_lift_final_sec",
-        "first_lift_final_timestamp",
-        "main_peak_source_sec",
-        "main_peak_source_timestamp",
-        "main_peak_final_sec",
-        "main_peak_final_timestamp",
-        "second_peak_source_sec",
-        "second_peak_source_timestamp",
-        "second_peak_final_sec",
-        "second_peak_final_timestamp",
-        "breakdown_source_sec",
-        "breakdown_source_timestamp",
-        "breakdown_final_sec",
-        "breakdown_final_timestamp",
-        "transition_out_sec",
-        "transition_out_timestamp",
-        "visual_mood",
-        "confidence",
-        "notes",
-    ]
+CUE_POINTS = ("first_lift", "main_peak", "second_peak", "breakdown")
 
+CUE_FIELDNAMES = [
+    "title",
+    "path",
+    "bpm_manifest",
+    "bpm_detected",
+    "key",
+    "duration_sec",
+    "duration_timestamp",
+    "final_start_sec",
+    "final_start_timestamp",
+    *(f"{cue}_{frame}_{unit}" for cue in CUE_POINTS for frame in ("source", "final") for unit in ("sec", "timestamp")),
+    "transition_out_sec",
+    "transition_out_timestamp",
+    "visual_mood",
+    "confidence",
+    "notes",
+]
+
+
+def _fixed(value: Optional[float], digits: int = 3) -> str:
+    return "" if value is None else f"{value:.{digits}f}"
+
+
+def _timed(name: str, sec: Optional[float]) -> Dict[str, str]:
+    """The paired `<name>_sec` / `<name>_timestamp` CSV cells for one time value."""
+    return {f"{name}_sec": _fixed(sec), f"{name}_timestamp": sec_to_timestamp(sec)}
+
+
+def _cue_row(r: CueResult) -> Dict[str, str]:
+    row = {
+        "title": r.title,
+        "path": r.path,
+        "bpm_manifest": _fixed(r.bpm_manifest, 2),
+        "bpm_detected": _fixed(r.bpm_detected, 2),
+        "key": r.key,
+        **_timed("duration", r.duration_sec),
+        **_timed("final_start", r.final_start_sec),
+    }
+    for cue in CUE_POINTS:
+        source_sec = getattr(r, f"{cue}_sec")
+        row.update(_timed(f"{cue}_source", source_sec))
+        row.update(_timed(f"{cue}_final", add_final_time(r.final_start_sec, source_sec)))
+    row.update(_timed("transition_out", r.transition_out_sec))
+    row.update(visual_mood=r.visual_mood, confidence=r.confidence, notes=r.notes)
+    return row
+
+
+def write_results(path: Path, results: List[CueResult]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", encoding="utf-8", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer = csv.DictWriter(f, fieldnames=CUE_FIELDNAMES)
         writer.writeheader()
-
-        for r in results:
-            first_final = add_final_time(r.final_start_sec, r.first_lift_sec)
-            main_final = add_final_time(r.final_start_sec, r.main_peak_sec)
-            second_final = add_final_time(r.final_start_sec, r.second_peak_sec)
-            breakdown_final = add_final_time(r.final_start_sec, r.breakdown_sec)
-
-            writer.writerow({
-                "title": r.title,
-                "path": r.path,
-                "bpm_manifest": "" if r.bpm_manifest is None else f"{r.bpm_manifest:.2f}",
-                "bpm_detected": "" if r.bpm_detected is None else f"{r.bpm_detected:.2f}",
-                "key": r.key,
-                "duration_sec": f"{r.duration_sec:.3f}",
-                "duration_timestamp": sec_to_timestamp(r.duration_sec),
-                "final_start_sec": "" if r.final_start_sec is None else f"{r.final_start_sec:.3f}",
-                "final_start_timestamp": sec_to_timestamp(r.final_start_sec),
-                "first_lift_source_sec": "" if r.first_lift_sec is None else f"{r.first_lift_sec:.3f}",
-                "first_lift_source_timestamp": sec_to_timestamp(r.first_lift_sec),
-                "first_lift_final_sec": "" if first_final is None else f"{first_final:.3f}",
-                "first_lift_final_timestamp": sec_to_timestamp(first_final),
-                "main_peak_source_sec": "" if r.main_peak_sec is None else f"{r.main_peak_sec:.3f}",
-                "main_peak_source_timestamp": sec_to_timestamp(r.main_peak_sec),
-                "main_peak_final_sec": "" if main_final is None else f"{main_final:.3f}",
-                "main_peak_final_timestamp": sec_to_timestamp(main_final),
-                "second_peak_source_sec": "" if r.second_peak_sec is None else f"{r.second_peak_sec:.3f}",
-                "second_peak_source_timestamp": sec_to_timestamp(r.second_peak_sec),
-                "second_peak_final_sec": "" if second_final is None else f"{second_final:.3f}",
-                "second_peak_final_timestamp": sec_to_timestamp(second_final),
-                "breakdown_source_sec": "" if r.breakdown_sec is None else f"{r.breakdown_sec:.3f}",
-                "breakdown_source_timestamp": sec_to_timestamp(r.breakdown_sec),
-                "breakdown_final_sec": "" if breakdown_final is None else f"{breakdown_final:.3f}",
-                "breakdown_final_timestamp": sec_to_timestamp(breakdown_final),
-                "transition_out_sec": "" if r.transition_out_sec is None else f"{r.transition_out_sec:.3f}",
-                "transition_out_timestamp": sec_to_timestamp(r.transition_out_sec),
-                "visual_mood": r.visual_mood,
-                "confidence": r.confidence,
-                "notes": r.notes,
-            })
+        writer.writerows(_cue_row(r) for r in results)
 
 
 # -----------------------------
