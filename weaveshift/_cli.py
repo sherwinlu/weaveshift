@@ -9,7 +9,13 @@ from typing import Callable, Mapping, Optional, Sequence
 
 from weaveshift._version import APP_VERSION
 from weaveshift.audio import VOCAL_METHODS, validate_audio_output
-from weaveshift.plan import SetlistMixPlan, TwoTrackMixPlan
+from weaveshift.plan import (
+    DEFAULT_B_CUE_MAX_SEC,
+    DEFAULT_MAX_TRIM_A_SEC,
+    DEFAULT_SEARCH_SEC,
+    SetlistMixPlan,
+    TwoTrackMixPlan,
+)
 from weaveshift.profiles import BUILTIN_PROFILES
 
 APP_NAME = f"WeaveShift {APP_VERSION}"
@@ -40,10 +46,10 @@ def add_planning_arguments(parser: argparse.ArgumentParser, *, vocal_default: st
         help="Vocal analysis method ('auto' tries Demucs then heuristic; 'none' skips vocal detection)",
     )
     parser.add_argument("--no-mps", action="store_true", help="Do not try Apple Silicon MPS for Demucs")
-    parser.add_argument("--search-a-sec", type=float, default=35.0, help="Seconds of the outgoing track's outro to analyze")
-    parser.add_argument("--search-b-sec", type=float, default=35.0, help="Seconds of the incoming track's intro to analyze")
-    parser.add_argument("--max-trim-a-sec", type=float, default=8.0, help="Maximum seconds allowed to trim from the outgoing tail")
-    parser.add_argument("--b-cue-max-sec", type=float, default=10.0, help="Latest allowed cue point in the incoming intro")
+    parser.add_argument("--search-a-sec", type=float, default=DEFAULT_SEARCH_SEC, help="Seconds of the outgoing track's outro to analyze")
+    parser.add_argument("--search-b-sec", type=float, default=DEFAULT_SEARCH_SEC, help="Seconds of the incoming track's intro to analyze")
+    parser.add_argument("--max-trim-a-sec", type=float, default=DEFAULT_MAX_TRIM_A_SEC, help="Maximum seconds allowed to trim from the outgoing tail")
+    parser.add_argument("--b-cue-max-sec", type=float, default=DEFAULT_B_CUE_MAX_SEC, help="Latest allowed cue point in the incoming intro")
 
 
 def resolve_output(raw: str) -> tuple[Path, Path, str]:

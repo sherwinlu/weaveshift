@@ -475,7 +475,7 @@ def analyze_track(audio_file: Path, bpm_hint: Optional[float]) -> Tuple[float, O
     bpm_detected = None
     try:
         with suppress_audio_warnings():
-            tempo_raw = librosa.feature.rhythm.tempo(
+            tempo_raw = librosa.feature.tempo(
                 onset_envelope=onset_env, sr=sr, hop_length=hop_length, aggregate=np.median
             )
         if len(tempo_raw):

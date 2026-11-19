@@ -33,6 +33,11 @@ from weaveshift.reports import ranked_candidate_summary
 
 MAX_NATURAL_PAUSE_SEC = 300.0
 
+# Defaults shared by the planners and the CLI flags that feed them.
+DEFAULT_SEARCH_SEC = 35.0
+DEFAULT_MAX_TRIM_A_SEC = 8.0
+DEFAULT_B_CUE_MAX_SEC = 10.0
+
 
 @dataclass
 class TrackSpec:
@@ -87,8 +92,8 @@ class SetlistMixPlan:
     junctions: List[JunctionPlan] = field(default_factory=list)
     scoring_profile: Optional[ScoringProfile] = None
     wav_infos: List[Dict[str, object]] = field(default_factory=list)
-    effective_search_a_sec: float = 35.0
-    effective_search_b_sec: float = 35.0
+    effective_search_a_sec: float = DEFAULT_SEARCH_SEC
+    effective_search_b_sec: float = DEFAULT_SEARCH_SEC
     source_zero_in_mix_sec: List[float] = field(default_factory=list)
     manifest_settings: dict[str, object] = field(default_factory=dict)
     segments: List[AudioSegment] = field(default_factory=list)
@@ -514,10 +519,10 @@ def plan_setlist_mix(
     transition_mode: str = "recommended",
     profile: str = "edm",
     scoring_config: Optional[str] = None,
-    search_a_sec: float = 35.0,
-    search_b_sec: float = 35.0,
-    max_trim_a_sec: float = 8.0,
-    b_cue_max_sec: float = 10.0,
+    search_a_sec: float = DEFAULT_SEARCH_SEC,
+    search_b_sec: float = DEFAULT_SEARCH_SEC,
+    max_trim_a_sec: float = DEFAULT_MAX_TRIM_A_SEC,
+    b_cue_max_sec: float = DEFAULT_B_CUE_MAX_SEC,
     natural_pause_sec: float = 1.0,
     vocal_method: str = "heuristic",
     prefer_mps: bool = True,
@@ -625,10 +630,10 @@ def plan_two_track_mix(
     mode: str = "all",
     profile: str = "edm",
     scoring_config: Optional[str] = None,
-    search_a_sec: float = 35.0,
-    search_b_sec: float = 35.0,
-    max_trim_a_sec: float = 8.0,
-    b_cue_max_sec: float = 10.0,
+    search_a_sec: float = DEFAULT_SEARCH_SEC,
+    search_b_sec: float = DEFAULT_SEARCH_SEC,
+    max_trim_a_sec: float = DEFAULT_MAX_TRIM_A_SEC,
+    b_cue_max_sec: float = DEFAULT_B_CUE_MAX_SEC,
     a_bpm: Optional[float] = None,
     b_bpm: Optional[float] = None,
     a_key: Optional[str] = None,

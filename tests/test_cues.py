@@ -166,3 +166,13 @@ def test_read_tracks_and_timeline_support_weaveshift_json_formats(tmp_path):
     assert tracks[0].visual_mood == "warm-up"
     assert timeline["demo 01"] == TimelineRow("Demo 01", start_sec=0.0, transition_out_sec=54.0, overlap_sec=6.0)
     assert timeline["demo 02"] == TimelineRow("Demo 02", start_sec=52.5, transition_out_sec=None, overlap_sec=None)
+
+
+def test_analyze_track_detects_tempo(tmp_path):
+    from tests.audio_helpers import write_click_track
+    from weaveshift.cues import analyze_track
+
+    audio = write_click_track(tmp_path / "clicks.wav", duration=30.0, bpm=128.0)
+    _duration, bpm_detected, _cues, _confidence, _notes = analyze_track(audio, bpm_hint=128.0)
+    assert bpm_detected is not None
+    assert abs(bpm_detected - 128.0) < 4.0
