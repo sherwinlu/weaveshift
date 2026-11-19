@@ -12,8 +12,8 @@ from weaveshift.audio import (
     format_timestamp,
 )
 
-TWO_TRACK_REPORT_SCHEMA_VERSION = "1.0.0"
-SETLIST_REPORT_SCHEMA_VERSION = "1.0.0"
+REPORT_SCHEMA_VERSION = "1.0.0"
+INPUT_POLICY = "WAV and MP3 full-mix inputs. Output is a single .wav or .mp3 file. Stem analysis/rendering deferred."
 
 TWO_TRACK_REPORT_REQUIRED_KEYS = (
     "app",
@@ -68,6 +68,12 @@ SETLIST_TRANSITION_KEYS = (
 )
 
 
+def _check_keys(item: Mapping[str, Any], required: Sequence[str], label: str) -> None:
+    missing = [key for key in required if key not in item]
+    if missing:
+        raise ValueError(f"{label} missing keys: {', '.join(missing)}")
+
+
 def validate_report_schema(report: Mapping[str, Any], *, kind: str = "two_track") -> None:
     """Raise ValueError when a report dict is missing required fields."""
     if kind == "two_track":
@@ -76,29 +82,15 @@ def validate_report_schema(report: Mapping[str, Any], *, kind: str = "two_track"
         required = SETLIST_REPORT_REQUIRED_KEYS
     else:
         raise ValueError(f"Unknown report kind: {kind}")
+    _check_keys(report, required, "Report")
 
-    missing = [key for key in required if key not in report]
-    if missing:
-        raise ValueError(f"Report missing required keys: {', '.join(missing)}")
-
-    ranked = report.get("ranked_candidates")
-    if ranked is not None:
-        for i, item in enumerate(ranked):
-            item_missing = [key for key in RANKED_CANDIDATE_REQUIRED_KEYS if key not in item]
-            if item_missing:
-                raise ValueError(f"ranked_candidates[{i}] missing keys: {', '.join(item_missing)}")
-            transition = item.get("transition") or {}
-            transition_missing = [key for key in TRANSITION_KEYS if key not in transition]
-            if transition_missing:
-                raise ValueError(f"ranked_candidates[{i}].transition missing keys: {', '.join(transition_missing)}")
+    for i, item in enumerate(report.get("ranked_candidates") or []):
+        _check_keys(item, RANKED_CANDIDATE_REQUIRED_KEYS, f"ranked_candidates[{i}]")
+        _check_keys(item.get("transition") or {}, TRANSITION_KEYS, f"ranked_candidates[{i}].transition")
 
     if kind == "setlist":
-        transitions = report.get("transitions")
-        if transitions is not None:
-            for i, item in enumerate(transitions):
-                item_missing = [key for key in SETLIST_TRANSITION_KEYS if key not in item]
-                if item_missing:
-                    raise ValueError(f"transitions[{i}] missing keys: {', '.join(item_missing)}")
+        for i, item in enumerate(report.get("transitions") or []):
+            _check_keys(item, SETLIST_TRANSITION_KEYS, f"transitions[{i}]")
 
 
 def build_two_track_report(
@@ -116,9 +108,9 @@ def build_two_track_report(
 ) -> Dict[str, Any]:
     report = {
         "app": app_name,
-        "schema_version": TWO_TRACK_REPORT_SCHEMA_VERSION,
+        "schema_version": REPORT_SCHEMA_VERSION,
         "wav_format_validation": dict(wav_format_validation),
-        "input_policy": "WAV and MP3 full-mix inputs. Output is a single .wav or .mp3 file. Stem analysis/rendering deferred.",
+        "input_policy": INPUT_POLICY,
         "recommended_candidate": recommended,
         "mode": mode,
         "profile": profile,
@@ -164,8 +156,8 @@ def build_setlist_report(
 ) -> Dict[str, Any]:
     report = {
         "app": app_name,
-        "schema_version": SETLIST_REPORT_SCHEMA_VERSION,
-        "input_policy": "WAV and MP3 full-mix inputs. Output is a single .wav or .mp3 file. Stem analysis/rendering deferred.",
+        "schema_version": REPORT_SCHEMA_VERSION,
+        "input_policy": INPUT_POLICY,
         "transition_mode": transition_mode,
         "transition_overrides": transition_overrides,
         "profile": profile,

@@ -19,7 +19,7 @@ from typing import Dict, List, Optional, Tuple, cast
 from pydub import AudioSegment
 
 from weaveshift._cli import (
-    APP_NAME as BASE_APP_NAME,
+    APP_NAME,
     CANDIDATE_MODES,
     add_planning_arguments,
     report_widened_windows,
@@ -41,7 +41,7 @@ from weaveshift.plan import MAX_NATURAL_PAUSE_SEC, TrackSpec, plan_setlist_mix
 from weaveshift.rendering import build_transition_audio, export_audio
 from weaveshift.reports import build_setlist_report, candidate_verdict
 
-APP_NAME = f"{BASE_APP_NAME} Setlist Builder"
+SETLIST_TITLE = f"{APP_NAME} Setlist Builder"
 DEFAULT_SETLIST_OUTPUT = "weaveshift_setlist.wav"
 SETLIST_REPORT_SUFFIX = ".weaveshift_setlist_report.json"
 
@@ -221,7 +221,7 @@ def build_continuous_mix(args) -> None:
 
     out_path, base, fmt_suffix = resolve_output(args.output)
 
-    print(f"{APP_NAME}")
+    print(SETLIST_TITLE)
     print(f"Loaded setlist with {len(tracks)} tracks.")
     print("Chain mode: preserving source timing/pitch; one selected transition per junction.")
 
@@ -344,7 +344,7 @@ def build_continuous_mix(args) -> None:
             snippet_outputs.append(str(snip_path))
 
     report = build_setlist_report(
-        app_name=APP_NAME,
+        app_name=SETLIST_TITLE,
         transition_mode=args.transition_mode,
         profile=scoring_profile.name if scoring_profile else None,
         scoring_config=args.scoring_config,
@@ -372,7 +372,7 @@ def build_continuous_mix(args) -> None:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(description=f"{APP_NAME}")
+    p = argparse.ArgumentParser(description=SETLIST_TITLE)
     p.add_argument("setlist", help="JSON manifest or text file with one audio path per line")
     p.add_argument(
         "-o",

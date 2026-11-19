@@ -27,9 +27,8 @@ logger = logging.getLogger(__name__)
 
 @dataclass(frozen=True)
 class TechnicalScoringConfig:
-    """Versioned technical scoring weights for base candidate ranking."""
+    """Technical scoring weights for base candidate ranking."""
 
-    version: str = "1.0.0"
     beat_distance_default_sec: float = 2.0
     beat_alignment_divisor_sec: float = 1.0
     perceptual_lufs_blend: float = 0.70

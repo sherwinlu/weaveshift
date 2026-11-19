@@ -6,7 +6,7 @@ from weaveshift.reports import (
     build_two_track_report,
     validate_report_schema,
 )
-from weaveshift.scoring import DEFAULT_TECHNICAL_SCORING, TechnicalScoringConfig, score_candidate
+from weaveshift.scoring import TechnicalScoringConfig, score_candidate
 from weaveshift.audio import TransitionCandidate
 from weaveshift.reports import ranked_candidate_summary
 
@@ -47,10 +47,8 @@ def test_golden_candidate_ranking_prefers_clean_vocal_handoff():
     assert clean.vocal_collision_score < muddy.vocal_collision_score
 
 
-def test_technical_scoring_config_is_versioned_and_overridable():
-    custom = TechnicalScoringConfig(version="test-1", vocal_weight=0.50, beat_alignment_weight=0.10)
-    assert custom.version == "test-1"
-    assert DEFAULT_TECHNICAL_SCORING.version == "1.0.0"
+def test_technical_scoring_config_is_overridable():
+    custom = TechnicalScoringConfig(vocal_weight=0.50, beat_alignment_weight=0.10)
 
     a = analysis("a", duration=30, beats=[24.0])
     b = analysis("b", duration=30, beats=[0.0])
