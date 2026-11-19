@@ -43,6 +43,14 @@ python -m weaveshift.two_tracks "Track A.wav" "Track B.mp3" \
   --make-snippets
 ```
 
+Available two-track `--mode` values (alias `--transition-mode`, default `all`):
+
+```text
+all, vocal_safe, beat_aligned, quick_cut, smooth, profile, vocal_ducked, long_blend
+```
+
+Each rendered candidate appends `_<candidate>` to the `-o` base name (for example, `-o output/transition.wav` with `--mode profile` writes `output/transition_profile.wav` alongside `output/transition.weaveshift_mix_report.json`). You can also override detected tempo/key per track with `--a-bpm`, `--b-bpm`, `--a-key`, and `--b-key`.
+
 ## Vocal analysis methods
 
 * `heuristic` — fast midrange/harmonic estimator; default for `weaveshift-setlist`.
@@ -52,13 +60,15 @@ python -m weaveshift.two_tracks "Track A.wav" "Track B.mp3" \
 
 ## Video cue sheets (`weaveshift-cues`)
 
-`weaveshift-cues` (`python -m weaveshift.cues`) accepts CSV or WeaveShift JSON manifests with `.wav` / `.mp3` tracks and optionally maps cue timestamps onto a final mix using a `.weaveshift_setlist_report.json` or timeline CSV:
+`weaveshift-cues` (`python -m weaveshift.cues`) reads CSV or WeaveShift JSON manifests with `.wav`/`.mp3` tracks, writes a CSV cue sheet (`--out`, default `weaveshift_cues.csv`), and optionally maps cue timestamps onto a final mix using a `.weaveshift_setlist_report.json` or timeline CSV:
 
 ```bash
 python -m weaveshift.cues examples/setlist_example.json \
   --timeline output/weaveshift_demo.weaveshift_setlist_report.json \
   --out output/weaveshift_cues.csv
 ```
+
+Additional options: `--audio-root DIR` (extra allowed search directory for manifest audio paths), `--allow-outside-manifest-dir` (lift path containment), and `--skip-missing` (skip missing or unreadable tracks instead of failing; path containment errors are still rejected).
 
 ## Setlist manifest format
 
@@ -86,13 +96,13 @@ Each `path` may point to a WAV or MP3 file. Mixed formats are fine when decode p
 }
 ```
 
-Plain text setlists (one audio file path per line, `#` comments ignored) are also accepted. Relative paths are resolved relative to the manifest file, and `~` paths are expanded.
+Plain text setlists (one audio file path per line, `#` comments ignored) are also accepted. Relative paths are resolved relative to the manifest file, and `~` paths are expanded before path containment is checked (see below).
 
 Other manifest `settings` keys apply only when you pass `--apply-manifest-settings`, and only keys on the supported allowlist are copied (see [Per-Transition Overrides & Manifest Settings](overrides.md#applying-other-manifest-settings)); unsupported keys are ignored with a warning. Without the flag, CLI arguments control those defaults, while **`transition_overrides` still apply**.
 
 ## Track path security rules
 
-Track paths in a setlist (JSON or text) and in `weaveshift-cues` manifests must resolve **inside the manifest directory** (or `--audio-root` for cues). `..`, absolute paths elsewhere, `~`, and symlinks that point outside are rejected. Pass `--allow-outside-manifest-dir` to opt in when your music library lives outside the project:
+Track paths in a setlist (JSON or text) and in `weaveshift-cues` manifests must resolve **inside the manifest directory** (or `--audio-root` for cues). `..`, absolute paths elsewhere, expanded `~` paths, and symlinks that resolve outside are rejected. Pass `--allow-outside-manifest-dir` to opt in when your music library lives outside the project:
 
 ```bash
 python -m weaveshift.setlist setlist.json --allow-outside-manifest-dir
@@ -102,7 +112,7 @@ This flag is CLI-only and cannot be set from a manifest.
 
 ## Audio format policy
 
-WeaveShift accepts **WAV and MP3 inputs in any combination** — a setlist can mix `.wav` and `.mp3` tracks. All tracks must share the same **sample rate** and **channel count**. When every input is WAV, subtype must also match (`PCM_16`, `PCM_24`, and so on).
+WeaveShift accepts **WAV (`.wav`, `.wave`) and MP3 (`.mp3`) inputs in any combination** — a setlist can mix WAV and MP3 tracks. All tracks must share the same **sample rate** and **channel count**. When every input is WAV, subtype must also match (`PCM_16`, `PCM_24`, `PCM_32`, `FLOAT`, or `DOUBLE`).
 
 **Output is one file**, either WAV or MP3 — pick with the `-o` suffix:
 

@@ -49,7 +49,7 @@ python -m weaveshift.setlist examples/setlist_example.json \
   --make-snippets
 ```
 
-Or run a two-track transition test:
+Or run a two-track transition test (appends `_<candidate>` to the `-o` base name, e.g. `output/transition_profile.wav`):
 
 ```bash
 python -m weaveshift.two_tracks "Track A.wav" "Track B.mp3" \
@@ -110,7 +110,7 @@ weaveshift/
     _paths.py                 # manifest path containment
     _version.py               # single source of the package version
     audio.py                  # analysis and validation
-    cues.py                   # video cue sheet helper (CSV and JSON)
+    cues.py                   # video cue sheet generator (reads CSV/JSON, writes CSV)
     plan.py                   # plan/execute separation
     profiles.py               # TOML scoring profiles
     rendering.py              # transition rendering

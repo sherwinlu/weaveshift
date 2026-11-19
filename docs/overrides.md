@@ -67,7 +67,7 @@ recommended, vocal_safe, beat_aligned, quick_cut, smooth, profile, vocal_ducked,
 
 Setlist overrides also support the semantic `natural`, `manual`, and `handoff` modes described below.
 
-The optional `from` and `to` fields can identify a junction when `index` is omitted; otherwise they are labels for humans and reports. WeaveShift prefers `index` when both are supplied.
+The optional `from` and `to` fields can identify a junction by track title when `index` is omitted. During lookup, each override entry checks `index` first and then `from`/`to` in list order, so include `from`/`to` alongside `index` only when they match the same junction.
 
 ## Natural track boundary
 
@@ -128,7 +128,7 @@ Manual override fields:
 | Field              | Meaning                                                                                                         |
 | ------------------ | --------------------------------------------------------------------------------------------------------------- |
 | `index`            | 1-based transition number in the setlist                                                                        |
-| `mode`             | Must be `manual` for exact parameter overrides                                                                  |
+| `mode`             | Optional; defaults to `manual` (starting from `recommended`). Supplying any manual parameter key below also works with a named candidate mode (e.g. `quick_cut`) to tune that candidate |
 | `a_fade_start_sec` | Source time in Track A where the outgoing fade starts                                                           |
 | `a_cut_sec`        | Source time in Track A where Track A is fully cut                                                               |
 | `b_cue_sec`        | Source time in Track B where the incoming track begins                                                          |
@@ -179,7 +179,7 @@ Handoff fields:
 | `b_entry_gain_db`      | Gain applied to Track B entry                                 |
 | `b_fade_in_sec`        | Track B fade-in duration; may continue after Track A is gone  |
 
-Validation keeps handoffs short and intentional: `takeover_overlap_sec` must be `0.05`–`1.0` seconds, `b_fade_in_sec` must be `0.1`–`4.0` seconds and at least `takeover_overlap_sec`, and `b_entry_gain_db` must be between `-6.0` and `+3.0` dB. As with manual overrides, all values must be finite, `a_fade_start_sec` and `b_cue_sec` must be `>= 0`, and timing must fall within the source tracks.
+Validation keeps handoffs short and intentional: `takeover_overlap_sec` must be `0.05`–`1.0` seconds, `b_fade_in_sec` must be `0.1`–`4.0` seconds and at least `takeover_overlap_sec`, and `b_entry_gain_db` must be between `-6.0` and `+3.0` dB. `soft_duck_db` and `soft_duck_target` are not supported in `handoff` overrides (use a `manual` override for soft ducking). As with manual overrides, all values must be finite, `a_fade_start_sec` and `b_cue_sec` must be `>= 0`, and timing must fall within the source tracks.
 
 ## Running with overrides
 
@@ -197,7 +197,7 @@ When an override is applied, WeaveShift logs it during rendering:
 
 ```text
 Using transition override for #6: You Never Broke Me → Je Cherche La Lumière = manual
-Selected manual: score=0.926; new song starts in mix at 26:30, using Track B cue 0:04; overlap 3.0s, B gain +3.0 dB
+Selected manual: score=0.926; new song starts in mix at 26:30 (1590.00s), using Track B cue 0:04 (3.88s); overlap 3.0s, B gain +3.0 dB
 ```
 
 The JSON report also includes the top-level `transition_overrides` array and marks the overridden transition notes with `transition override: ...`.

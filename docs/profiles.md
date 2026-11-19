@@ -5,7 +5,7 @@ Built-in profiles ship inside the package under `weaveshift/configs/` and are se
 * `--transition-mode profile` for setlist runs (`weaveshift-setlist`).
 * `--mode profile` for two-track transitions (`weaveshift-two-tracks`).
 
-WeaveShift prints a warning if `--profile` or `--scoring-config` is supplied with another mode.
+WeaveShift prints a warning if a non-default `--profile` or `--scoring-config` is supplied with another mode.
 
 ## Built-in profiles
 
