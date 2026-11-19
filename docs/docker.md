@@ -4,7 +4,7 @@ WeaveShift ships a `Dockerfile` based on `python:3.12-slim` with `ffmpeg`, `ffpr
 
 ## Build the image
 
-Core image (fast, small — supports `--vocal-method heuristic` and `--vocal-method none`):
+Core image (fast, small — supports `--vocal-method heuristic` and `none`; `auto` falls back to `heuristic`):
 
 ```bash
 docker build -t weaveshift .
