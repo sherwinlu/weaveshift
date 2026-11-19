@@ -166,3 +166,70 @@ def test_read_tracks_and_timeline_support_weaveshift_json_formats(tmp_path):
     assert tracks[0].visual_mood == "warm-up"
     assert timeline["demo 01"] == TimelineRow("Demo 01", start_sec=0.0, transition_out_sec=54.0, overlap_sec=6.0)
     assert timeline["demo 02"] == TimelineRow("Demo 02", start_sec=52.5, transition_out_sec=None, overlap_sec=None)
+
+
+def _assert_bpm_octave(bpm: float | None, expected: float) -> None:
+    assert bpm is not None
+    assert min(abs(bpm - expected), abs(bpm * 2 - expected), abs(bpm / 2 - expected)) < 4.0
+
+
+def test_analyze_track_detects_tempo(tmp_path):
+    from tests.audio_helpers import write_click_track
+    from weaveshift.cues import analyze_track
+
+    audio = write_click_track(tmp_path / "clicks.wav", duration=30.0, bpm=128.0)
+    _duration, bpm_detected, _cues, _confidence, _notes = analyze_track(audio, bpm_hint=128.0)
+    assert bpm_detected is not None
+    assert abs(bpm_detected - 128.0) < 4.0
+
+    _duration, bpm_raw, _cues, _confidence, _notes = analyze_track(audio, bpm_hint=None)
+    _assert_bpm_octave(bpm_raw, 128.0)
+
+
+def test_analyze_track_detects_tempo_in_fresh_process_without_rhythm_preimport(tmp_path):
+    import subprocess
+    import sys
+    from pathlib import Path
+    from tests.audio_helpers import write_click_track
+
+    audio = write_click_track(tmp_path / "clicks.wav", duration=30.0, bpm=128.0)
+    script = (
+        "import sys; from pathlib import Path; "
+        "from weaveshift.cues import analyze_track; "
+        "assert 'librosa.feature.rhythm' not in sys.modules; "
+        "_, bpm, _, _, _ = analyze_track(Path(sys.argv[1]), bpm_hint=None); "
+        "assert bpm is not None, 'expected detected BPM'; "
+        "print(bpm)"
+    )
+    proc = subprocess.run(
+        [sys.executable, "-c", script, str(audio)],
+        cwd=str(Path(__file__).resolve().parents[1]),
+        capture_output=True,
+        text=True,
+    )
+    assert proc.returncode == 0, proc.stderr
+    _assert_bpm_octave(float(proc.stdout.strip()), 128.0)
+
+
+def test_read_tracks_and_main_reject_malformed_manifests_with_value_error(tmp_path, capsys):
+    import pytest
+    from weaveshift.cues import main as cues_main
+
+    bad_csv = tmp_path / "bad.csv"
+    bad_csv.write_text("title\nOnlyTitle\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="missing a path/file/audio_path"):
+        read_tracks(bad_csv)
+
+    empty_json = tmp_path / "empty.json"
+    empty_json.write_text('{"tracks": []}', encoding="utf-8")
+    with pytest.raises(ValueError, match="non-empty 'tracks' list"):
+        read_tracks(empty_json)
+
+    bad_entry = tmp_path / "bad_entry.json"
+    bad_entry.write_text('{"tracks": [123]}', encoding="utf-8")
+    with pytest.raises(ValueError, match="string or an object"):
+        read_tracks(bad_entry)
+
+    rc = cues_main([str(empty_json), "--out", str(tmp_path / "out.csv")])
+    assert rc == 1
+    assert "Error: JSON manifest must contain a non-empty 'tracks' list." in capsys.readouterr().err

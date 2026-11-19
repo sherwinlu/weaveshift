@@ -1,12 +1,12 @@
 import json
-from types import SimpleNamespace
 
 import numpy as np
 import soundfile as sf
 
 import weaveshift.plan as weaveshift_plan
 import weaveshift.setlist as weaveshift_setlist
-from weaveshift.two_tracks import AudioAnalysis, TransitionCandidate
+from weaveshift.audio import AudioAnalysis, TransitionCandidate
+from tests.cli_helpers import setlist_args
 
 
 def write_wav(path, duration=4.0, sr=48000, freq=440.0):
@@ -55,23 +55,7 @@ def base_candidate(name="vocal_safe"):
 
 
 def args_for(setlist, output):
-    return SimpleNamespace(
-        setlist=str(setlist),
-        output=str(output),
-        transition_mode="recommended",
-        make_snippets=True,
-        profile="edm",
-        scoring_config=None,
-        vocal_method="heuristic",
-        no_mps=True,
-        search_a_sec=1.0,
-        search_b_sec=1.0,
-        max_trim_a_sec=2.0,
-        b_cue_max_sec=2.0,
-        natural_pause_sec=1.0,
-        apply_manifest_settings=False,
-        allow_outside_manifest_dir=False,
-    )
+    return setlist_args(setlist, output, make_snippets=True)
 
 
 def test_build_continuous_mix_applies_manual_override_and_writes_report(tmp_path, monkeypatch):

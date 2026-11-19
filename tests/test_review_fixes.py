@@ -18,6 +18,7 @@ from weaveshift.reports import build_setlist_report, build_two_track_report, ser
 from weaveshift.scoring import profile_search_parameters
 from weaveshift.profiles import ScoringProfile
 from tests.audio_helpers import write_click_track, write_stereo_wav
+from tests.cli_helpers import setlist_args
 
 
 def analysis(role: str, *, duration=30.0, beats=None, bpm=128.0):
@@ -346,26 +347,7 @@ def test_three_track_setlist_execute_writes_mix(tmp_path, monkeypatch):
     monkeypatch.setattr(weaveshift_plan, "analyze_audio", lambda path, role, **_: fake)
     monkeypatch.setattr(weaveshift_plan, "choose_candidates", lambda *_a, **_k: [cand])
 
-    from types import SimpleNamespace
-
-    weaveshift_setlist.build_continuous_mix(
-        SimpleNamespace(
-            setlist=str(manifest),
-            output=str(out),
-            transition_mode="recommended",
-            make_snippets=False,
-            profile="edm",
-            scoring_config=None,
-            vocal_method="heuristic",
-            no_mps=True,
-            search_a_sec=2.0,
-            search_b_sec=2.0,
-            max_trim_a_sec=2.0,
-            b_cue_max_sec=2.0,
-            apply_manifest_settings=False,
-            allow_outside_manifest_dir=False,
-        )
-    )
+    weaveshift_setlist.build_continuous_mix(setlist_args(manifest, out, search_a_sec=2.0, search_b_sec=2.0))
     assert out.exists()
     report = json.loads((tmp_path / "mix.weaveshift_setlist_report.json").read_text(encoding="utf-8"))
     assert len(report["transitions"]) == 2

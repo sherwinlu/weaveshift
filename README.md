@@ -731,12 +731,15 @@ weaveshift/
 
   weaveshift/                 # core Python package
     __init__.py
+    _cli.py                   # arguments and process plumbing shared by the CLIs
+    _paths.py                 # manifest path containment
+    _version.py               # single source of the package version
     audio.py                  # analysis and validation
     cues.py                   # video cue sheet helper (CSV and JSON)
     plan.py                   # plan/execute separation
     profiles.py               # TOML scoring profiles
     rendering.py              # transition rendering
-    reports.py                # JSON/CSV report builders
+    reports.py                # JSON report builders
     scoring.py                # candidate search and scoring
     setlist.py                # setlist CLI orchestration
     two_tracks.py             # two-track CLI orchestration

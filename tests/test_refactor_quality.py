@@ -1,13 +1,13 @@
 import numpy as np
 
-from weaveshift.audio import AudioAnalysis, VocalSegment
-from weaveshift.rendering import build_transition_audio, render_candidate, render_transition_tail
+from weaveshift.audio import AudioAnalysis, TransitionCandidate, VocalSegment
+from weaveshift.rendering import build_transition_audio, render_candidate
 from weaveshift.reports import (
     build_two_track_report,
+    ranked_candidate_summary,
     validate_report_schema,
 )
-from weaveshift.scoring import DEFAULT_TECHNICAL_SCORING, TechnicalScoringConfig, score_candidate
-from weaveshift.two_tracks import TransitionCandidate, ranked_candidate_summary
+from weaveshift.scoring import TechnicalScoringConfig, score_candidate
 
 
 def analysis(role: str, *, duration=30.0, beats=None, vocals=None, bpm=128.0, camelot="12B", energy_db=-14.0):
@@ -46,10 +46,8 @@ def test_golden_candidate_ranking_prefers_clean_vocal_handoff():
     assert clean.vocal_collision_score < muddy.vocal_collision_score
 
 
-def test_technical_scoring_config_is_versioned_and_overridable():
-    custom = TechnicalScoringConfig(version="test-1", vocal_weight=0.50, beat_alignment_weight=0.10)
-    assert custom.version == "test-1"
-    assert DEFAULT_TECHNICAL_SCORING.version == "1.0.0"
+def test_technical_scoring_config_is_overridable():
+    custom = TechnicalScoringConfig(vocal_weight=0.50, beat_alignment_weight=0.10)
 
     a = analysis("a", duration=30, beats=[24.0])
     b = analysis("b", duration=30, beats=[0.0])
@@ -254,8 +252,6 @@ def test_build_transition_audio_matches_tail_and_full(tmp_path):
     )
 
     built = build_transition_audio(seg_a, seg_b, cand)
-    tail = render_transition_tail(seg_a, seg_b, cand)
-    assert len(tail) == len(built.body)
     assert len(built.full) == len(built.prefix) + len(built.body)
 
     out = tmp_path / "out.wav"

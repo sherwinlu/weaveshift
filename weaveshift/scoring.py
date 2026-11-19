@@ -4,7 +4,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, replace
 from functools import lru_cache
-from typing import List, Optional, Sequence, Tuple
+from typing import Callable, List, Optional, Sequence, Tuple
 
 import numpy as np
 
@@ -27,9 +27,8 @@ logger = logging.getLogger(__name__)
 
 @dataclass(frozen=True)
 class TechnicalScoringConfig:
-    """Versioned technical scoring weights for base candidate ranking."""
+    """Technical scoring weights for base candidate ranking."""
 
-    version: str = "1.0.0"
     beat_distance_default_sec: float = 2.0
     beat_alignment_divisor_sec: float = 1.0
     perceptual_lufs_blend: float = 0.70
@@ -141,6 +140,14 @@ def build_candidate_times(
     return limit(cluster(a_cuts, prefer_end=True), 22, prefer_end=True), limit(cluster(b_cues), 22, prefer_end=False)
 
 
+def _tiered_score(value: float, tiers: Sequence[Tuple[float, float]], beyond: float) -> float:
+    """Score of the first (limit, score) tier whose limit is >= value, else ``beyond``."""
+    for limit, tier_score in tiers:
+        if value <= limit:
+            return tier_score
+    return beyond
+
+
 def score_candidate(
     a: AudioAnalysis,
     b: AudioAnalysis,
@@ -177,14 +184,8 @@ def score_candidate(
     a_vocal_frac = vocal_active_fraction(a.vocal_segments, a_fade_start, a_cut)
     b_vocal_frac = vocal_active_fraction(b.vocal_segments, b_cue, b_cue + overlap)
 
-    b_beat_dist = min(
-        nearest_distance(b_cue, b.beats_sec, scoring.beat_distance_default_sec),
-        nearest_distance(b_cue, b.onsets_sec, scoring.beat_distance_default_sec),
-    )
-    a_cut_dist = min(
-        nearest_distance(a_cut, a.beats_sec, scoring.beat_distance_default_sec),
-        nearest_distance(a_cut, a.onsets_sec, scoring.beat_distance_default_sec),
-    )
+    b_beat_dist = nearest_distance(b_cue, b.beats_sec + b.onsets_sec, scoring.beat_distance_default_sec)
+    a_cut_dist = nearest_distance(a_cut, a.beats_sec + a.onsets_sec, scoring.beat_distance_default_sec)
     beat_alignment = clamp(1.0 - ((b_beat_dist + a_cut_dist) / scoring.beat_alignment_divisor_sec), 0.0, 1.0)
 
     a_ref_db = energy_db_from_curve(a.energy_curve, a_fade_start, overlap)
@@ -208,21 +209,21 @@ def score_candidate(
         0.0,
         1.0,
     )
-    if abs(b_gain) <= scoring.loudness_gain_ok_db:
-        loudness_score = scoring.loudness_score_ok
-    elif abs(b_gain) <= scoring.loudness_gain_warn_db:
-        loudness_score = scoring.loudness_score_warn
-    else:
-        loudness_score = scoring.loudness_score_high_gain
+    loudness_score = _tiered_score(
+        abs(b_gain),
+        ((scoring.loudness_gain_ok_db, scoring.loudness_score_ok), (scoring.loudness_gain_warn_db, scoring.loudness_score_warn)),
+        scoring.loudness_score_high_gain,
+    )
 
-    if trim <= scoring.placement_trim_none_sec:
-        placement = scoring.placement_score_none
-    elif trim <= scoring.placement_trim_short_sec:
-        placement = scoring.placement_score_short
-    elif trim <= scoring.placement_trim_medium_sec:
-        placement = scoring.placement_score_medium
-    else:
-        placement = scoring.placement_score_long
+    placement = _tiered_score(
+        trim,
+        (
+            (scoring.placement_trim_none_sec, scoring.placement_score_none),
+            (scoring.placement_trim_short_sec, scoring.placement_score_short),
+            (scoring.placement_trim_medium_sec, scoring.placement_score_medium),
+        ),
+        scoring.placement_score_long,
+    )
 
     if b_cue > scoring.b_cue_late_sec:
         placement *= scoring.b_cue_late_multiplier
@@ -231,15 +232,15 @@ def score_candidate(
 
     tempo_score = scoring.tempo_default_score
     if a.bpm and b.bpm:
-        bpm_diff = abs(float(a.bpm) - float(b.bpm))
-        if bpm_diff <= scoring.tempo_close_bpm:
-            tempo_score = scoring.tempo_close_score
-        elif bpm_diff <= scoring.tempo_near_bpm:
-            tempo_score = scoring.tempo_near_score
-        elif bpm_diff <= scoring.tempo_far_bpm:
-            tempo_score = scoring.tempo_far_score
-        else:
-            tempo_score = scoring.tempo_distant_score
+        tempo_score = _tiered_score(
+            abs(float(a.bpm) - float(b.bpm)),
+            (
+                (scoring.tempo_close_bpm, scoring.tempo_close_score),
+                (scoring.tempo_near_bpm, scoring.tempo_near_score),
+                (scoring.tempo_far_bpm, scoring.tempo_far_score),
+            ),
+            scoring.tempo_distant_score,
+        )
     compat = scoring.compat_tempo_weight * tempo_score + scoring.compat_key_weight * camelot_compat(a.camelot, b.camelot)
 
     overlap_bonus = 0.0
@@ -424,14 +425,20 @@ def choose_candidates(
 
     selected: List[TransitionCandidate] = []
 
-    def add_named(label: str, pool: Sequence[TransitionCandidate], extra_note: Optional[str] = None) -> None:
+    def add_named(
+        label: str,
+        pool: Sequence[TransitionCandidate],
+        tweak: Callable[[TransitionCandidate], TransitionCandidate] = lambda c: c,
+    ) -> None:
+        """Select the first pooled candidate that is not a near-duplicate of one already chosen."""
         for c in pool:
             if not candidate_too_close(c, selected):
-                notes = list(c.notes)
-                if extra_note:
-                    notes.append(extra_note)
-                selected.append(replace(c, name=label, notes=notes))
+                chosen = tweak(c)
+                selected.append(replace(chosen, name=label, notes=list(chosen.notes)))
                 return
+
+    def with_note(c: TransitionCandidate, note: str, **changes) -> TransitionCandidate:
+        return replace(c, notes=[*c.notes, note], **changes)
 
     add_named("vocal_safe", valid)
 
@@ -445,27 +452,21 @@ def choose_candidates(
     quick_pool = sorted([c for c in valid if c.overlap_sec <= 3.0], key=lambda c: c.score, reverse=True)
     add_named("quick_cut", quick_pool or valid)
 
-    smooth_prof = _smooth_profile()
-    smooth_max_collision = float(smooth_prof.limit("max_vocal_collision_score", 0.25))
+    smooth_max_collision = float(_smooth_profile().limit("max_vocal_collision_score", 0.25))
     smooth_pool = sorted(
-        ((smooth_candidate_score(c), c) for c in valid if c.vocal_collision_score <= smooth_max_collision),
-        key=lambda pair: pair[0],
+        [c for c in valid if c.vocal_collision_score <= smooth_max_collision],
+        key=smooth_candidate_score,
         reverse=True,
     )
-    for smooth_score, c in smooth_pool:
-        if candidate_too_close(c, selected):
-            continue
-        selected.append(
-            replace(
-                c,
-                name="smooth",
-                notes=list(c.notes)
-                + [
-                    f"smooth-mode taste score {smooth_score:.3f}: favors clean vocal overlap, moderate/long overlap, modest B gain, shallow B cue, limited tail trim, and usable beat alignment"
-                ],
-            )
-        )
-        break
+    add_named(
+        "smooth",
+        smooth_pool,
+        lambda c: with_note(
+            c,
+            f"smooth-mode taste score {smooth_candidate_score(c):.3f}: favors clean vocal overlap, moderate/long "
+            "overlap, modest B gain, shallow B cue, limited tail trim, and usable beat alignment",
+        ),
+    )
 
     if scoring_profile is not None:
         profile_pool = sorted(
@@ -473,48 +474,38 @@ def choose_candidates(
             key=lambda c: profile_candidate_score(c, scoring_profile),
             reverse=True,
         )
-        for c in profile_pool:
-            if candidate_too_close(c, selected):
-                continue
-            prof_score = profile_candidate_score(c, scoring_profile)
-            selected.append(
-                replace(
-                    c,
-                    name="profile",
-                    notes=list(c.notes)
-                    + [
-                        f"profile score {prof_score:.3f} using '{scoring_profile.name}' profile: {scoring_profile.description}"
-                    ],
-                )
-            )
-            break
+        add_named(
+            "profile",
+            profile_pool,
+            lambda c: with_note(
+                c,
+                f"profile score {profile_candidate_score(c, scoring_profile):.3f} using "
+                f"'{scoring_profile.name}' profile: {scoring_profile.description}",
+            ),
+        )
 
     duck_pool = sorted(
         [c for c in valid if 0.05 < c.vocal_collision_score <= 0.42 and c.beat_alignment_score >= 0.45],
         key=lambda c: (c.score + 0.04 * c.beat_alignment_score),
         reverse=True,
     )
-    for c in duck_pool:
-        if candidate_too_close(c, selected):
-            continue
-        soft_duck_db = round(-min(3.0, max(1.25, 1.0 + c.vocal_collision_score * 5.0)), 2)
-        selected.append(
-            replace(
-                c,
-                name="vocal_ducked",
-                soft_duck_db=soft_duck_db,
-                soft_duck_target="a",
-                notes=list(c.notes) + [f"soft-ducks Track A by {soft_duck_db:.1f} dB during the overlap"],
-            )
+
+    def soft_duck_track_a(c: TransitionCandidate) -> TransitionCandidate:
+        duck_db = round(-min(3.0, max(1.25, 1.0 + c.vocal_collision_score * 5.0)), 2)
+        return with_note(
+            c,
+            f"soft-ducks Track A by {duck_db:.1f} dB during the overlap",
+            soft_duck_db=duck_db,
+            soft_duck_target="a",
         )
-        break
+
+    add_named("vocal_ducked", duck_pool, soft_duck_track_a)
 
     long_pool = sorted(
         [c for c in valid if c.overlap_sec >= 6.0 and c.compatibility_score >= 0.65 and c.vocal_collision_score <= 0.20],
         key=lambda c: c.score,
         reverse=True,
     )
-    if long_pool:
-        add_named("long_blend", long_pool)
+    add_named("long_blend", long_pool)
 
     return selected

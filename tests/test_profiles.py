@@ -1,5 +1,5 @@
 from weaveshift.profiles import ScoringProfile, load_scoring_profile
-from weaveshift.two_tracks import profile_search_parameters
+from weaveshift.scoring import profile_search_parameters
 
 
 def test_profile_limits_shape_candidate_search_space():

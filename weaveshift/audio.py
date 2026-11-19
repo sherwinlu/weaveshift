@@ -12,27 +12,15 @@ import sys
 import warnings
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, Iterator, List, Optional, Sequence, Tuple, Union
+from typing import Dict, Iterator, List, Mapping, Optional, Sequence, Tuple, Union
 
 import numpy as np
 import soundfile as sf
 from pydub import AudioSegment
 
-try:
-    import pyloudnorm as pyln
-except Exception:  # pragma: no cover
-    pyln = None
-
-try:
-    import librosa
-except Exception as exc:  # pragma: no cover
-    print("ERROR: librosa is required. Install with: python3 -m pip install librosa soundfile", file=sys.stderr)
-    raise exc
-
-try:
-    from scipy.ndimage import maximum_filter1d
-except Exception:  # pragma: no cover
-    maximum_filter1d = None
+import librosa
+import pyloudnorm as pyln
+from scipy.ndimage import maximum_filter1d
 
 
 logger = logging.getLogger(__name__)
@@ -170,19 +158,6 @@ def validate_audio_input(path: str, label: str) -> Path:
     return p
 
 
-def validate_wav_input(path: str, label: str) -> Path:
-    """Validate that an input is a real, supported WAV file, not just a .wav suffix."""
-    p = Path(path)
-    if not p.exists():
-        raise FileNotFoundError(f"{label} file does not exist: {p}")
-    if p.suffix.lower() not in SUPPORTED_WAV_SUFFIXES:
-        raise ValueError(
-            f"{label} must be a WAV file. Got: {p.name}\n"
-            "Use validate_audio_input() for MP3 sources, or export a WAV master before mixing."
-        )
-    return validate_audio_input(path, label)
-
-
 def wav_info(path: Path) -> Dict[str, object]:
     info = sf.info(str(path))
     return {
@@ -218,14 +193,21 @@ def compatibility_fields(a_info: Dict[str, object], b_info: Dict[str, object]) -
     return tuple(fields)
 
 
+def format_mismatches(
+    a: Mapping[str, object], b: Mapping[str, object], fields: Sequence[str], a_label: str, b_label: str
+) -> str:
+    """Bullet list of the fields on which two format descriptions differ ('' when they agree)."""
+    return "\n".join(
+        f"  - {field}: {a_label}={a[field]}, {b_label}={b[field]}" for field in fields if a[field] != b[field]
+    )
+
+
 def validate_audio_pair_compatibility(track_a: Path, track_b: Path) -> Tuple[Dict[str, object], Dict[str, object]]:
     """Require A/B format parity so pydub does not silently resample/reconcile masters."""
     a_info = audio_info(track_a)
     b_info = audio_info(track_b)
-    fields = compatibility_fields(a_info, b_info)
-    mismatches = [(f, a_info[f], b_info[f]) for f in fields if a_info[f] != b_info[f]]
-    if mismatches:
-        details = "\n".join(f"  - {field}: Track A={a_val}, Track B={b_val}" for field, a_val, b_val in mismatches)
+    details = format_mismatches(a_info, b_info, compatibility_fields(a_info, b_info), "Track A", "Track B")
+    if details:
         raise ValueError(
             "Track A and Track B audio formats do not match. Refusing to mix rather than letting "
             "pydub/ffmpeg silently resample or change bit depth.\n"
@@ -233,24 +215,6 @@ def validate_audio_pair_compatibility(track_a: Path, track_b: Path) -> Tuple[Dic
             "Export/resample both masters to the same sample rate and channel count before mixing. "
             "Mixed WAV and MP3 inputs are allowed when those match. "
             "For all-WAV chains, subtype must also match. Recommended: 48 kHz, stereo, PCM_24."
-        )
-    return a_info, b_info
-
-
-def validate_wav_pair_compatibility(track_a: Path, track_b: Path) -> Tuple[Dict[str, object], Dict[str, object]]:
-    """Require A/B WAV format parity (lossless subtype included)."""
-    a_info = wav_info(track_a)
-    b_info = wav_info(track_b)
-    fields = ("samplerate", "channels", "subtype")
-    mismatches = [(f, a_info[f], b_info[f]) for f in fields if a_info[f] != b_info[f]]
-    if mismatches:
-        details = "\n".join(f"  - {field}: Track A={a_val}, Track B={b_val}" for field, a_val, b_val in mismatches)
-        raise ValueError(
-            "Track A and Track B WAV formats do not match. Refusing to mix rather than letting "
-            "pydub/ffmpeg silently resample or change bit depth.\n"
-            f"{details}\n"
-            "Export/resample both masters to the same sample rate, channel count, and WAV subtype "
-            "before running AutoMix. Recommended: 48 kHz, stereo, PCM_24 or 44.1 kHz, stereo, PCM_24."
         )
     return a_info, b_info
 
@@ -306,18 +270,26 @@ def read_audio_window(path: str, start_sec: float, duration_sec: float) -> Tuple
     return _audio_segment_to_stereo_float32(seg)
 
 
+def to_mono(y_frames: np.ndarray) -> np.ndarray:
+    """Average a (frames, channels) float array down to mono float32."""
+    return np.mean(y_frames, axis=1).astype(np.float32) if y_frames.size else np.zeros(0, dtype=np.float32)
+
+
+def frame_times(n_frames: int, sr: int, hop_length: int) -> np.ndarray:
+    return librosa.frames_to_time(np.arange(n_frames), sr=sr, hop_length=hop_length)
+
+
+def resample_for_analysis(y: np.ndarray, orig_sr: int, target_sr: int) -> np.ndarray:
+    return librosa.resample(y, orig_sr=orig_sr, target_sr=target_sr) if orig_sr != target_sr else y
+
+
 def load_mono_analysis_audio(path: str | Path) -> Tuple[np.ndarray, int, float]:
     """Load a full track as mono float32 for librosa analysis (WAV or MP3)."""
     p = Path(path)
     meta = audio_info(p)
     duration_sec = float(meta["duration_sec"])  # pyright: ignore[reportArgumentType]
     y_stereo, sr_native = read_audio_window(str(p), 0.0, duration_sec)
-    y_mono = (
-        np.mean(y_stereo, axis=1).astype(np.float32)
-        if y_stereo.size
-        else np.zeros(0, dtype=np.float32)
-    )
-    return y_mono, int(sr_native), duration_sec
+    return to_mono(y_stereo), int(sr_native), duration_sec
 
 
 def validate_loaded_segment_parity(seg_a: AudioSegment, seg_b: AudioSegment) -> None:
@@ -326,13 +298,11 @@ def validate_loaded_segment_parity(seg_a: AudioSegment, seg_b: AudioSegment) -> 
     Decoded sample width is intentionally not compared: MP3 and WAV masters that share
     sample rate and channels can still decode to different internal bit depths.
     """
-    mismatches = []
-    if seg_a.frame_rate != seg_b.frame_rate:
-        mismatches.append(("frame_rate", seg_a.frame_rate, seg_b.frame_rate))
-    if seg_a.channels != seg_b.channels:
-        mismatches.append(("channels", seg_a.channels, seg_b.channels))
-    if mismatches:
-        details = "\n".join(f"  - {field}: Track A={a_val}, Track B={b_val}" for field, a_val, b_val in mismatches)
+    fields = ("frame_rate", "channels")
+    details = format_mismatches(
+        {f: getattr(seg_a, f) for f in fields}, {f: getattr(seg_b, f) for f in fields}, fields, "Track A", "Track B"
+    )
+    if details:
         raise ValueError(
             "Decoded AudioSegment formats do not match after loading. Refusing to render.\n" + details
         )
@@ -354,17 +324,6 @@ def validate_audio_output(path: str) -> Path:
     if not p.suffix:
         p = p.with_suffix(".wav")
     return p
-
-
-def validate_wav_output(path: str) -> Path:
-    p = Path(path)
-    if p.suffix and p.suffix.lower() not in SUPPORTED_WAV_SUFFIXES:
-        raise ValueError(f"Output must be .wav. Got: {p.name}")
-    return validate_audio_output(path)
-
-
-def output_format_suffix(path: Path) -> str:
-    return path.suffix.lower() if path.suffix else ".wav"
 
 
 # -----------------------------
@@ -489,19 +448,13 @@ def stereo_dbfs_from_samples(y: np.ndarray) -> Tuple[float, float]:
     return 20 * math.log10(max(rms, 1e-9)), 20 * math.log10(max(peak, 1e-9))
 
 
-def dbfs_from_samples(y: np.ndarray) -> Tuple[float, float]:
-    """Alias for stereo_dbfs_from_samples."""
-    return stereo_dbfs_from_samples(y)
-
-
-def pydub_rms_dbfs(seg: AudioSegment) -> float:
-    if len(seg) <= 0 or seg.rms == 0:
-        return -120.0
-    return float(seg.dBFS)
-
-
 def clamp(x: float, lo: float, hi: float) -> float:
     return max(lo, min(hi, x))
+
+
+def sec_to_ms(sec: float) -> int:
+    """Convert seconds to milliseconds using round-half-up for splice/render parity."""
+    return int(round(float(sec) * 1000.0))
 
 
 def format_timestamp(seconds: float) -> str:
@@ -582,8 +535,6 @@ def compute_local_lufs_curve(
     hop_sec: float = 0.25,
 ) -> Dict[str, np.ndarray]:
     """Precompute short-term LUFS windows for perceptual loudness scoring."""
-    if pyln is None:
-        return {"times": np.array([], dtype=np.float32), "lufs": np.array([], dtype=np.float32)}
     arr = np.asarray(y, dtype=np.float32)
     if arr.ndim == 1:
         arr = arr[:, None]
@@ -808,9 +759,8 @@ def vocal_segments_heuristic(y: np.ndarray, sr: int, offset_sec: float, threshol
         db = 20 * np.log10(rms + 1e-9)
         thr = max(threshold_db, float(np.percentile(db, 70) - 8.0))
         active = (db > thr) & (ratio > np.percentile(ratio, 45))
-        if maximum_filter1d is not None:
-            active = maximum_filter1d(active.astype(float), size=5) > 0
-        times = librosa.frames_to_time(np.arange(len(active)), sr=sr, hop_length=512)
+        active = maximum_filter1d(active.astype(float), size=5) > 0
+        times = frame_times(len(active), sr, 512)
         return segments_from_activity(times, active, db, offset=offset_sec, merge_gap=1.2, min_len=0.4)
     except Exception:
         return []
@@ -846,9 +796,8 @@ def _vocal_segments_from_mono(
     else:
         thr = threshold_db
     active = db > thr
-    if maximum_filter1d is not None:
-        active = maximum_filter1d(active.astype(float), size=3) > 0
-    times = librosa.frames_to_time(np.arange(len(active)), sr=sr, hop_length=hop)
+    active = maximum_filter1d(active.astype(float), size=3) > 0
+    times = frame_times(len(active), sr, hop)
     return segments_from_activity(times, active, db, offset=start_sec, merge_gap=1.5, min_len=0.35)
 
 
@@ -862,7 +811,7 @@ def _segments_from_vocals_wav(vocals_path: Path, start_sec: float, duration_sec:
     data, sr_read = sf.read(str(vocals_path), start=frame_start, stop=frame_stop, always_2d=True, dtype="float32")
     if data.size == 0:
         return []
-    vocals_mono = np.mean(data, axis=1).astype(np.float32)
+    vocals_mono = to_mono(data)
     return _vocal_segments_from_mono(vocals_mono, int(sr_read), start_sec, threshold_db)
 
 
@@ -897,6 +846,12 @@ def _demucs_cli_vocals_path(audio_path: str, model: str = "htdemucs") -> Path:
     if not generated:
         raise RuntimeError(f"Demucs CLI completed but no vocals.wav was found under {model_dir}")
     return generated[0]
+
+
+def _demucs_separate(separator_cls, wav, sr: int, device: str):
+    separator = separator_cls(model="htdemucs", device=device)
+    _origin, separated = separator.separate_tensor(wav.to(device), sr)
+    return separated
 
 
 def vocal_segments_demucs(
@@ -935,16 +890,12 @@ def vocal_segments_demucs(
 
     device = get_torch_device(prefer_mps=prefer_mps)
     try:
-        separator = Separator(model="htdemucs", device=device)
-        _origin, separated = separator.separate_tensor(wav.to(device), sr)
+        separated = _demucs_separate(Separator, wav, sr, device)
     except Exception as exc:
-        if device != "cpu":
-            logger.warning("Demucs failed on %s; retrying on CPU. Reason: %s", device, exc)
-            device = "cpu"
-            separator = Separator(model="htdemucs", device=device)
-            _origin, separated = separator.separate_tensor(wav.to(device), sr)
-        else:
+        if device == "cpu":
             raise
+        logger.warning("Demucs failed on %s; retrying on CPU. Reason: %s", device, exc)
+        separated = _demucs_separate(Separator, wav, sr, "cpu")
 
     vocals = separated["vocals"]
     if vocals.ndim == 3:  # batch, channel, time
@@ -989,16 +940,21 @@ def analyze_vocals(
     return segs, "heuristic"
 
 
+def _vocal_active_mask(segments: Sequence[VocalSegment], times: np.ndarray) -> np.ndarray:
+    """Boolean mask of the sample times that fall inside any vocal segment."""
+    active = np.zeros(len(times), dtype=bool)
+    for seg in segments:
+        active |= (times >= seg.start_sec) & (times <= seg.end_sec)
+    return active
+
+
 def vocal_active_fraction(segments: Sequence[VocalSegment], start: float, end: float, step: float = 0.1) -> float:
     if end <= start:
         return 0.0
     t = np.arange(start, end, step)
     if len(t) == 0:
         return 0.0
-    active = np.zeros(len(t), dtype=bool)
-    for seg in segments:
-        active |= (t >= seg.start_sec) & (t <= seg.end_sec)
-    return float(np.mean(active))
+    return float(np.mean(_vocal_active_mask(segments, t)))
 
 
 def overlap_vocal_collision(
@@ -1015,13 +971,8 @@ def overlap_vocal_collision(
     t = np.arange(0, overlap, step)
     if len(t) == 0:
         return 0.0
-    a_active = np.zeros(len(t), dtype=bool)
-    b_active = np.zeros(len(t), dtype=bool)
-    for seg in a_segments:
-        a_active |= ((a_start + t) >= seg.start_sec) & ((a_start + t) <= seg.end_sec)
-    for seg in b_segments:
-        b_active |= ((b_start + t) >= seg.start_sec) & ((b_start + t) <= seg.end_sec)
-    return float(np.mean(a_active & b_active))
+    both = _vocal_active_mask(a_segments, a_start + t) & _vocal_active_mask(b_segments, b_start + t)
+    return float(np.mean(both))
 
 
 # -----------------------------
@@ -1052,32 +1003,22 @@ def analyze_audio(
     rms_db, peak_db = stereo_dbfs_from_samples(y_stereo)
     energy_curve = compute_local_energy_curve(y_stereo, sr, start)
     loudness_curve = compute_local_lufs_curve(y_stereo, sr, start)
-    y_mono = np.mean(y_stereo, axis=1).astype(np.float32) if y_stereo.size else np.array([], dtype=np.float32)
+    y_mono = to_mono(y_stereo)
     y_chunk = y_stereo.T  # channels-first for librosa.to_mono in heuristic vocal analysis
 
     # Tempo / beat analysis: Track A uses the outro window; Track B uses the intro.
-    beat_load_offset = start if role == "a" else 0.0
     beat_load_dur = min(dur if role == "a" else duration_sec, 180.0)
     try:
-        # Reuse the already-loaded mono window when offset and duration match (e.g. Track A),
+        # Reuse the already-loaded mono window when the span matches (e.g. Track A),
         # avoiding a redundant disk read or second ffmpeg decode.
-        if abs(beat_load_offset - start) < 1e-6 and abs(beat_load_dur - dur) < 1e-6:
-            y_tempo_native = y_mono
-            sr_tempo_native = sr
+        if abs(beat_load_dur - dur) < 1e-6:
+            y_tempo_native, sr_tempo_native = y_mono, sr
         else:
-            y_tempo_stereo, sr_tempo_native = read_audio_window(path, beat_load_offset, beat_load_dur)
-            y_tempo_native = (
-                np.mean(y_tempo_stereo, axis=1).astype(np.float32)
-                if y_tempo_stereo.size
-                else np.zeros(0, dtype=np.float32)
-            )
+            y_tempo_stereo, sr_tempo_native = read_audio_window(path, start, beat_load_dur)
+            y_tempo_native = to_mono(y_tempo_stereo)
         sr_tempo = 22050
         with suppress_audio_warnings():
-            y_tempo = (
-                librosa.resample(y_tempo_native, orig_sr=sr_tempo_native, target_sr=sr_tempo)
-                if sr_tempo_native != sr_tempo
-                else y_tempo_native
-            )
+            y_tempo = resample_for_analysis(y_tempo_native, sr_tempo_native, sr_tempo)
             tempo, beats = librosa.beat.beat_track(y=y_tempo, sr=sr_tempo, units="time")
         tempo = safe_float(np.asarray(tempo).flatten()[0] if np.asarray(tempo).size else tempo, None)
     except Exception as exc:
@@ -1104,19 +1045,8 @@ def analyze_audio(
         )
         onsets_abs = []
 
-    beats_abs = []
-    try:
-        for bt in np.asarray(beats).flatten().tolist():
-            bt_abs = round(beat_load_offset + float(bt), 3)
-            if start <= bt_abs <= start + dur:
-                beats_abs.append(bt_abs)
-    except Exception as exc:
-        logger.warning(
-            "Beat window filtering failed for %s; continuing without beats. stage=beats path=%s reason=%s",
-            Path(path).name,
-            path,
-            type(exc).__name__,
-        )
+    beats_abs = [round(start + float(bt), 3) for bt in np.asarray(beats).flatten()]
+    beats_abs = [bt for bt in beats_abs if start <= bt <= start + dur]
 
     est_key, est_camelot = estimate_key(y_mono, sr)
     manual_key_norm, manual_cam = parse_manual_key(manual_key)

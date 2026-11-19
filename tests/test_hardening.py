@@ -5,12 +5,10 @@ built-in profile name validation, and output naming for dotted stems.
 """
 import json
 from pathlib import Path
-from types import SimpleNamespace
 
 import numpy as np
 import pytest
 
-import weaveshift.plan as weaveshift_plan
 import weaveshift.setlist as weaveshift_setlist
 from weaveshift.audio import AudioAnalysis, TransitionCandidate
 from weaveshift.plan import (
@@ -21,6 +19,7 @@ from weaveshift.plan import (
 from weaveshift.profiles import builtin_profile_path
 from weaveshift.setlist import apply_manifest_settings, build_parser, load_setlist
 from tests.audio_helpers import write_stereo_wav
+from tests.cli_helpers import setlist_args
 
 
 def analysis(role: str, *, duration: float = 30.0) -> AudioAnalysis:
@@ -150,23 +149,7 @@ def test_build_continuous_mix_ignores_manifest_output_redirect(tmp_path, monkeyp
         encoding="utf-8",
     )
     out = tmp_path / "mix.wav"
-    args = SimpleNamespace(
-        setlist=str(manifest),
-        output=str(out),
-        transition_mode="recommended",
-        make_snippets=False,
-        profile="edm",
-        scoring_config=None,
-        vocal_method="heuristic",
-        no_mps=True,
-        search_a_sec=1.0,
-        search_b_sec=1.0,
-        max_trim_a_sec=2.0,
-        b_cue_max_sec=2.0,
-        natural_pause_sec=1.0,
-        apply_manifest_settings=True,
-        allow_outside_manifest_dir=False,
-    )
+    args = setlist_args(manifest, out, apply_manifest_settings=True)
 
     weaveshift_setlist.build_continuous_mix(args)
 
@@ -275,23 +258,7 @@ def test_dotted_output_stem_keeps_full_report_name(tmp_path, monkeypatch):
     manifest = tmp_path / "setlist.json"
     manifest.write_text(json.dumps({"tracks": ["a.wav", "b.wav"]}), encoding="utf-8")
     out = tmp_path / "mix v1.2.wav"
-    args = SimpleNamespace(
-        setlist=str(manifest),
-        output=str(out),
-        transition_mode="natural",
-        make_snippets=False,
-        profile="edm",
-        scoring_config=None,
-        vocal_method="heuristic",
-        no_mps=True,
-        search_a_sec=1.0,
-        search_b_sec=1.0,
-        max_trim_a_sec=2.0,
-        b_cue_max_sec=2.0,
-        natural_pause_sec=0.5,
-        apply_manifest_settings=False,
-        allow_outside_manifest_dir=False,
-    )
+    args = setlist_args(manifest, out, transition_mode="natural", natural_pause_sec=0.5)
 
     weaveshift_setlist.build_continuous_mix(args)
 
@@ -480,8 +447,6 @@ def test_soft_duck_target_without_negative_db_is_rejected():
 
 
 def test_soft_duck_db_zero_switches_off_inherited_duck():
-    from dataclasses import replace
-
     from weaveshift.plan import _soft_duck_settings
 
     base = TransitionCandidate(

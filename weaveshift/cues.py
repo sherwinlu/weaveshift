@@ -12,20 +12,22 @@ import json
 import logging
 import math
 import re
-import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Tuple
 
+import librosa
 import numpy as np
 
+from weaveshift._cli import run_cli
 from weaveshift._paths import expand_user, is_within
 from weaveshift.audio import (
-    suppress_audio_warnings,
-    librosa,
+    frame_times,
     load_mono_analysis_audio,
     lossy_input_note,
+    resample_for_analysis,
     safe_float,
+    suppress_audio_warnings,
     validate_audio_input,
 )
 
@@ -140,54 +142,41 @@ def read_csv_dicts(path: Path) -> List[Dict[str, str]]:
         return list(csv.DictReader(f))
 
 
+def _track_from_row(row: Dict[str, str], missing_path_message: str) -> Track:
+    """Build a Track from a CSV row or stringified JSON object, accepting common column aliases."""
+    audio_path = get_first(row, ["path", "file", "filepath", "audio_path", "track_path"])
+    if not audio_path:
+        raise ValueError(missing_path_message)
+    return Track(
+        path=audio_path,
+        title=get_first(row, ["title", "track", "name", "track_title"]) or Path(audio_path).stem,
+        bpm=parse_float(get_first(row, ["bpm", "tempo"])),
+        key=get_first(row, ["key", "camelot_key", "musical_key"]),
+        visual_mood=get_first(row, ["visual_mood", "mood", "visual", "prompt_mood"]),
+    )
+
+
 def read_tracks(path: Path) -> List[Track]:
     """Read tracks from either a CSV manifest or a JSON setlist manifest."""
-    if path.suffix.lower() == ".json":
-        data = json.loads(path.read_text(encoding="utf-8"))
-        tracks_raw = data.get("tracks") if isinstance(data, dict) else data
-        if not isinstance(tracks_raw, list) or not tracks_raw:
-            raise SystemExit("JSON manifest must contain a non-empty 'tracks' list.")
-        tracks: List[Track] = []
-        for item in tracks_raw:
-            if isinstance(item, str):
-                tracks.append(Track(path=item, title=Path(item).stem))
-            elif isinstance(item, dict):
-                str_row = {str(k): "" if v is None else str(v) for k, v in item.items()}
-                audio_path = get_first(str_row, ["path", "file", "filepath", "audio_path", "track_path"])
-                if not audio_path:
-                    raise SystemExit("Track manifest entry is missing a path/file field.")
-                title = get_first(str_row, ["title", "track", "name", "track_title"]) or Path(audio_path).stem
-                tracks.append(
-                    Track(
-                        path=audio_path,
-                        title=title,
-                        bpm=parse_float(get_first(str_row, ["bpm", "tempo"])),
-                        key=get_first(str_row, ["key", "camelot_key", "musical_key"]),
-                        visual_mood=get_first(str_row, ["visual_mood", "mood", "visual", "prompt_mood"]),
-                    )
-                )
-            else:
-                raise SystemExit("Each JSON track entry must be a string or an object.")
-        return tracks
+    if path.suffix.lower() != ".json":
+        return [
+            _track_from_row(row, "Track manifest row is missing a path/file/audio_path column.")
+            for row in read_csv_dicts(path)
+        ]
 
-    rows = read_csv_dicts(path)
-    tracks = []
-    for row in rows:
-        audio_path = get_first(row, ["path", "file", "filepath", "audio_path", "track_path"])
-        title = get_first(row, ["title", "track", "name", "track_title"])
-        if not audio_path:
-            raise SystemExit("Track manifest row is missing a path/file/audio_path column.")
-        if not title:
-            title = Path(audio_path).stem
-        tracks.append(
-            Track(
-                path=audio_path,
-                title=title,
-                bpm=parse_float(get_first(row, ["bpm", "tempo"])),
-                key=get_first(row, ["key", "camelot_key", "musical_key"]),
-                visual_mood=get_first(row, ["visual_mood", "mood", "visual", "prompt_mood"]),
-            )
-        )
+    data = json.loads(path.read_text(encoding="utf-8"))
+    tracks_raw = data.get("tracks") if isinstance(data, dict) else data
+    if not isinstance(tracks_raw, list) or not tracks_raw:
+        raise ValueError("JSON manifest must contain a non-empty 'tracks' list.")
+    tracks: List[Track] = []
+    for item in tracks_raw:
+        if isinstance(item, str):
+            tracks.append(Track(path=item, title=Path(item).stem))
+        elif isinstance(item, dict):
+            str_row = {str(k): "" if v is None else str(v) for k, v in item.items()}
+            tracks.append(_track_from_row(str_row, "Track manifest entry is missing a path/file field."))
+        else:
+            raise ValueError("Each JSON track entry must be a string or an object.")
     return tracks
 
 
@@ -456,25 +445,25 @@ def analyze_track(audio_file: Path, bpm_hint: Optional[float]) -> Tuple[float, O
     y_native, sr_native, _duration_probe = load_mono_analysis_audio(audio_file)
     sr = 22050
     with suppress_audio_warnings():
-        y = librosa.resample(y_native, orig_sr=sr_native, target_sr=sr) if sr_native != sr else y_native
+        y = resample_for_analysis(y_native, sr_native, sr)
         duration_sec = float(librosa.get_duration(y=y, sr=sr))
 
         hop_length = 512
 
         rms = librosa.feature.rms(y=y, frame_length=2048, hop_length=hop_length)[0]
-        times = librosa.frames_to_time(np.arange(len(rms)), sr=sr, hop_length=hop_length)
+        times = frame_times(len(rms), sr, hop_length)
         frame_step = median_step_sec(times)
         rms_db = librosa.power_to_db(np.maximum(rms, 1e-10) ** 2, ref=np.max)
         energy = moving_average(rms_db, max(3, int(round(2.5 / frame_step))))
 
         onset_env = librosa.onset.onset_strength(y=y, sr=sr, hop_length=hop_length)
-        onset_times = librosa.frames_to_time(np.arange(len(onset_env)), sr=sr, hop_length=hop_length)
+        onset_times = frame_times(len(onset_env), sr, hop_length)
         onset_smooth = moving_average(onset_env, max(3, int(round(2.0 / median_step_sec(onset_times)))))
 
         onset_interp = np.interp(times, onset_times, onset_smooth)
 
         centroid = librosa.feature.spectral_centroid(y=y, sr=sr, hop_length=hop_length)[0]
-        centroid = np.interp(times, librosa.frames_to_time(np.arange(len(centroid)), sr=sr, hop_length=hop_length), centroid)
+        centroid = np.interp(times, frame_times(len(centroid), sr, hop_length), centroid)
         centroid_z = robust_z(moving_average(centroid, max(3, int(round(3.0 / frame_step)))))
 
     energy_z = robust_z(energy)
@@ -486,7 +475,7 @@ def analyze_track(audio_file: Path, bpm_hint: Optional[float]) -> Tuple[float, O
     bpm_detected = None
     try:
         with suppress_audio_warnings():
-            tempo_raw = librosa.feature.rhythm.tempo(
+            tempo_raw = librosa.feature.tempo(
                 onset_envelope=onset_env, sr=sr, hop_length=hop_length, aggregate=np.median
             )
         if len(tempo_raw):
@@ -518,8 +507,8 @@ def analyze_track(audio_file: Path, bpm_hint: Optional[float]) -> Tuple[float, O
     main_peak = peak_candidates[0] if peak_candidates else None
     second_peak = None
 
-    if peak_candidates:
-        later = [p for p in peak_candidates if main_peak is not None and p > main_peak + 35.0]
+    if main_peak is not None:
+        later = [p for p in peak_candidates if p > main_peak + 35.0]
         if later:
             second_peak = later[0]
         elif len(peak_candidates) > 1:
@@ -527,18 +516,13 @@ def analyze_track(audio_file: Path, bpm_hint: Optional[float]) -> Tuple[float, O
 
     breakdown = find_breakdown_candidate(times, energy, duration_sec)
 
-    confidence_bits = []
+    confidence = "low"
     if main_peak is not None:
-        score_at_peak = float(np.interp(main_peak, times, score))
-        pctl = float(np.mean(score <= score_at_peak))
+        pctl = float(np.mean(score <= float(np.interp(main_peak, times, score))))
         if pctl > 0.92:
-            confidence_bits.append("high")
+            confidence = "high"
         elif pctl > 0.80:
-            confidence_bits.append("medium")
-        else:
-            confidence_bits.append("low")
-    else:
-        confidence_bits.append("low")
+            confidence = "medium"
 
     notes = []
     if bpm_hint and bpm_detected and abs(bpm_detected - bpm_hint) > 4:
@@ -555,7 +539,7 @@ def analyze_track(audio_file: Path, bpm_hint: Optional[float]) -> Tuple[float, O
         "breakdown": breakdown,
     }
 
-    return duration_sec, bpm_detected, cues, confidence_bits[0], " ".join(notes)
+    return duration_sec, bpm_detected, cues, confidence, " ".join(notes)
 
 
 def add_final_time(final_start: Optional[float], source_time: Optional[float]) -> Optional[float]:
@@ -568,83 +552,61 @@ def add_final_time(final_start: Optional[float], source_time: Optional[float]) -
 # Output
 # -----------------------------
 
-def write_results(path: Path, results: List[CueResult]) -> None:
-    fieldnames = [
-        "title",
-        "path",
-        "bpm_manifest",
-        "bpm_detected",
-        "key",
-        "duration_sec",
-        "duration_timestamp",
-        "final_start_sec",
-        "final_start_timestamp",
-        "first_lift_source_sec",
-        "first_lift_source_timestamp",
-        "first_lift_final_sec",
-        "first_lift_final_timestamp",
-        "main_peak_source_sec",
-        "main_peak_source_timestamp",
-        "main_peak_final_sec",
-        "main_peak_final_timestamp",
-        "second_peak_source_sec",
-        "second_peak_source_timestamp",
-        "second_peak_final_sec",
-        "second_peak_final_timestamp",
-        "breakdown_source_sec",
-        "breakdown_source_timestamp",
-        "breakdown_final_sec",
-        "breakdown_final_timestamp",
-        "transition_out_sec",
-        "transition_out_timestamp",
-        "visual_mood",
-        "confidence",
-        "notes",
-    ]
+CUE_POINTS = ("first_lift", "main_peak", "second_peak", "breakdown")
 
+CUE_FIELDNAMES = [
+    "title",
+    "path",
+    "bpm_manifest",
+    "bpm_detected",
+    "key",
+    "duration_sec",
+    "duration_timestamp",
+    "final_start_sec",
+    "final_start_timestamp",
+    *(f"{cue}_{frame}_{unit}" for cue in CUE_POINTS for frame in ("source", "final") for unit in ("sec", "timestamp")),
+    "transition_out_sec",
+    "transition_out_timestamp",
+    "visual_mood",
+    "confidence",
+    "notes",
+]
+
+
+def _fixed(value: Optional[float], digits: int = 3) -> str:
+    return "" if value is None else f"{value:.{digits}f}"
+
+
+def _timed(name: str, sec: Optional[float]) -> Dict[str, str]:
+    """The paired `<name>_sec` / `<name>_timestamp` CSV cells for one time value."""
+    return {f"{name}_sec": _fixed(sec), f"{name}_timestamp": sec_to_timestamp(sec)}
+
+
+def _cue_row(r: CueResult) -> Dict[str, str]:
+    row = {
+        "title": r.title,
+        "path": r.path,
+        "bpm_manifest": _fixed(r.bpm_manifest, 2),
+        "bpm_detected": _fixed(r.bpm_detected, 2),
+        "key": r.key,
+        **_timed("duration", r.duration_sec),
+        **_timed("final_start", r.final_start_sec),
+    }
+    for cue in CUE_POINTS:
+        source_sec = getattr(r, f"{cue}_sec")
+        row.update(_timed(f"{cue}_source", source_sec))
+        row.update(_timed(f"{cue}_final", add_final_time(r.final_start_sec, source_sec)))
+    row.update(_timed("transition_out", r.transition_out_sec))
+    row.update(visual_mood=r.visual_mood, confidence=r.confidence, notes=r.notes)
+    return row
+
+
+def write_results(path: Path, results: List[CueResult]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", encoding="utf-8", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer = csv.DictWriter(f, fieldnames=CUE_FIELDNAMES)
         writer.writeheader()
-
-        for r in results:
-            first_final = add_final_time(r.final_start_sec, r.first_lift_sec)
-            main_final = add_final_time(r.final_start_sec, r.main_peak_sec)
-            second_final = add_final_time(r.final_start_sec, r.second_peak_sec)
-            breakdown_final = add_final_time(r.final_start_sec, r.breakdown_sec)
-
-            writer.writerow({
-                "title": r.title,
-                "path": r.path,
-                "bpm_manifest": "" if r.bpm_manifest is None else f"{r.bpm_manifest:.2f}",
-                "bpm_detected": "" if r.bpm_detected is None else f"{r.bpm_detected:.2f}",
-                "key": r.key,
-                "duration_sec": f"{r.duration_sec:.3f}",
-                "duration_timestamp": sec_to_timestamp(r.duration_sec),
-                "final_start_sec": "" if r.final_start_sec is None else f"{r.final_start_sec:.3f}",
-                "final_start_timestamp": sec_to_timestamp(r.final_start_sec),
-                "first_lift_source_sec": "" if r.first_lift_sec is None else f"{r.first_lift_sec:.3f}",
-                "first_lift_source_timestamp": sec_to_timestamp(r.first_lift_sec),
-                "first_lift_final_sec": "" if first_final is None else f"{first_final:.3f}",
-                "first_lift_final_timestamp": sec_to_timestamp(first_final),
-                "main_peak_source_sec": "" if r.main_peak_sec is None else f"{r.main_peak_sec:.3f}",
-                "main_peak_source_timestamp": sec_to_timestamp(r.main_peak_sec),
-                "main_peak_final_sec": "" if main_final is None else f"{main_final:.3f}",
-                "main_peak_final_timestamp": sec_to_timestamp(main_final),
-                "second_peak_source_sec": "" if r.second_peak_sec is None else f"{r.second_peak_sec:.3f}",
-                "second_peak_source_timestamp": sec_to_timestamp(r.second_peak_sec),
-                "second_peak_final_sec": "" if second_final is None else f"{second_final:.3f}",
-                "second_peak_final_timestamp": sec_to_timestamp(second_final),
-                "breakdown_source_sec": "" if r.breakdown_sec is None else f"{r.breakdown_sec:.3f}",
-                "breakdown_source_timestamp": sec_to_timestamp(r.breakdown_sec),
-                "breakdown_final_sec": "" if breakdown_final is None else f"{breakdown_final:.3f}",
-                "breakdown_final_timestamp": sec_to_timestamp(breakdown_final),
-                "transition_out_sec": "" if r.transition_out_sec is None else f"{r.transition_out_sec:.3f}",
-                "transition_out_timestamp": sec_to_timestamp(r.transition_out_sec),
-                "visual_mood": r.visual_mood,
-                "confidence": r.confidence,
-                "notes": r.notes,
-            })
+        writer.writerows(_cue_row(r) for r in results)
 
 
 # -----------------------------
@@ -692,19 +654,10 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: Optional[List[str]] = None) -> int:
-    args = build_parser().parse_args(argv)
-    try:
-        return _run(args)
-    except KeyboardInterrupt:
-        print("\nInterrupted by user.", file=sys.stderr)
-        return 130
-    except Exception as exc:
-        print(f"Error: {exc}", file=sys.stderr)
-        return 1
+    return run_cli(build_parser(), run, argv)
 
 
-def _run(args: argparse.Namespace) -> int:
-
+def run(args: argparse.Namespace) -> None:
     tracks = read_tracks(args.manifest)
     timeline = read_timeline(args.timeline)
 
@@ -769,7 +722,6 @@ def _run(args: argparse.Namespace) -> int:
     print("- If a cue is off, move it by ear in your editor.")
     print("- For video editors, useful audio_start values are usually main_peak_final_sec - 4 to main_peak_final_sec.")
     print("- Use transition_out_timestamp for visual crossfades between track worlds.")
-    return 0
 
 
 if __name__ == "__main__":
