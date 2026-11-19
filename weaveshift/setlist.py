@@ -18,36 +18,33 @@ from typing import Dict, List, Optional, Tuple, cast
 
 from pydub import AudioSegment
 
+from weaveshift._cli import (
+    APP_NAME as BASE_APP_NAME,
+    CANDIDATE_MODES,
+    add_planning_arguments,
+    report_widened_windows,
+    resolve_output,
+    run_cli,
+    warn_unused_profile,
+    write_report,
+)
 from weaveshift._paths import expand_user, resolve_contained
-from weaveshift._version import APP_VERSION
 from weaveshift.audio import (
     VOCAL_METHODS,
     NaturalTransition,
     format_timestamp,
-    output_format_suffix,
     resolve_wav_export_subtype,
-    validate_audio_output,
     warn_if_vocals_skipped,
 )
 from weaveshift.plan import MAX_NATURAL_PAUSE_SEC, TrackSpec, plan_setlist_mix
 from weaveshift.rendering import export_audio, render_transition_tail, sec_to_ms
 from weaveshift.reports import build_setlist_report, candidate_verdict
 
-APP_NAME = f"WeaveShift {APP_VERSION} Setlist Builder"
+APP_NAME = f"{BASE_APP_NAME} Setlist Builder"
 DEFAULT_SETLIST_OUTPUT = "weaveshift_setlist.wav"
 SETLIST_REPORT_SUFFIX = ".weaveshift_setlist_report.json"
 
-TRANSITION_MODES = (
-    "recommended",
-    "vocal_safe",
-    "beat_aligned",
-    "quick_cut",
-    "smooth",
-    "profile",
-    "vocal_ducked",
-    "long_blend",
-    "natural",
-)
+TRANSITION_MODES = ("recommended", *CANDIDATE_MODES, "natural")
 
 # Manifest settings that --apply-manifest-settings may copy onto CLI defaults,
 # mapped to their expected type. This is a deliberate allowlist: anything else
@@ -90,10 +87,6 @@ class TransitionChoice:
     next_track_source_zero_in_mix_timestamp: str
     ranked_candidates: list[dict[str, object]]
     notes: List[str]
-
-
-def safe_title_from_path(path: str) -> str:
-    return Path(path).stem
 
 
 def sanitize_filename(text: str, max_len: int = 50) -> str:
@@ -189,14 +182,14 @@ def load_setlist(path: str, allow_outside: bool = False) -> Tuple[List[TrackSpec
     for i, item in enumerate(tracks_raw, start=1):
         if isinstance(item, str):
             raw_path = item
-            title = safe_title_from_path(item)
+            title = Path(item).stem
             bpm = None
             key = None
         elif isinstance(item, dict):
             raw_path = item.get("path") or item.get("file")
             if not raw_path or not isinstance(raw_path, str):
                 raise ValueError(f"Track #{i} is missing a path/file field or it is not a string.")
-            title = item.get("title") or safe_title_from_path(raw_path)
+            title = item.get("title") or Path(raw_path).stem
             bpm = item.get("bpm")
             if bpm is not None and (isinstance(bpm, bool) or not isinstance(bpm, (int, float))):
                 raise ValueError(f"Track #{i} bpm must be a number. Got: {bpm!r}")
@@ -223,15 +216,9 @@ def build_continuous_mix(args) -> None:
     tracks, manifest_settings = load_setlist(args.setlist, allow_outside=args.allow_outside_manifest_dir)
     if args.apply_manifest_settings:
         apply_manifest_settings(args, manifest_settings, build_parser())
-    if args.transition_mode != "profile" and (args.scoring_config is not None or args.profile != "edm"):
-        print(
-            "Warning: --profile/--scoring-config are only used with --transition-mode profile; ignoring profile settings for this run.",
-            file=sys.stderr,
-        )
+    warn_unused_profile(args, args.transition_mode, "--transition-mode")
 
-    out_path = validate_audio_output(args.output)
-    base = out_path.with_suffix("")
-    fmt_suffix = output_format_suffix(out_path)
+    out_path, base, fmt_suffix = resolve_output(args.output)
 
     print(f"{APP_NAME}")
     print(f"Loaded setlist with {len(tracks)} tracks.")
@@ -249,7 +236,7 @@ def build_continuous_mix(args) -> None:
         search_b_sec=args.search_b_sec,
         max_trim_a_sec=args.max_trim_a_sec,
         b_cue_max_sec=args.b_cue_max_sec,
-        natural_pause_sec=getattr(args, "natural_pause_sec", 1.0),
+        natural_pause_sec=args.natural_pause_sec,
         vocal_method=args.vocal_method,
         prefer_mps=not args.no_mps,
     )
@@ -267,10 +254,7 @@ def build_continuous_mix(args) -> None:
     print(f"Output: {fmt_suffix} ({'MP3 320 kbps' if fmt_suffix == '.mp3' else source_subtype or 'PCM_16'})")
     if scoring_profile is not None:
         print(f"Using scoring profile: {scoring_profile.name} — {scoring_profile.description}")
-    if mix_plan.effective_search_a_sec > float(args.search_a_sec):
-        print(f"Note: widened Track A analysis window from {args.search_a_sec:.1f}s to {mix_plan.effective_search_a_sec:.1f}s.")
-    if mix_plan.effective_search_b_sec > float(args.search_b_sec):
-        print(f"Note: widened Track B analysis window from {args.search_b_sec:.1f}s to {mix_plan.effective_search_b_sec:.1f}s.")
+    report_widened_windows(args, mix_plan)
 
     snippet_requests: List[tuple[int, str, float]] = []
     final = segments[0]
@@ -340,7 +324,7 @@ def build_continuous_mix(args) -> None:
     final_gain_db = round(peak_guard_gain_db, 3)
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    export_audio(final, out_path, source_subtype if fmt_suffix == ".wav" else None)
+    export_audio(final, out_path, source_subtype)
 
     snippet_outputs = []
     if args.make_snippets:
@@ -354,17 +338,14 @@ def build_continuous_mix(args) -> None:
             export_audio(
                 cast(AudioSegment, final[start_ms:end_ms]),
                 snip_path,
-                source_subtype if fmt_suffix == ".wav" else None,
+                source_subtype,
             )
             snippet_outputs.append(str(snip_path))
 
-    # Append rather than with_suffix(): a dotted output stem such as
-    # "mix v1.2.wav" must not lose part of its name to suffix replacement.
-    report_path = base.with_name(base.name + SETLIST_REPORT_SUFFIX)
     report = build_setlist_report(
         app_name=APP_NAME,
         transition_mode=args.transition_mode,
-        profile=getattr(scoring_profile, "name", None),
+        profile=scoring_profile.name if scoring_profile else None,
         scoring_config=args.scoring_config,
         vocal_method=args.vocal_method,
         output_file=str(out_path),
@@ -378,7 +359,7 @@ def build_continuous_mix(args) -> None:
         transition_overrides=manifest_settings.get("transition_overrides"),
         snippet_files=snippet_outputs,
     )
-    report_path.write_text(json.dumps(report, indent=2), encoding="utf-8")
+    report_path = write_report(base, SETLIST_REPORT_SUFFIX, report)
 
     print(f"\n✅ Wrote continuous mix: {out_path}")
     print(f"   Duration: {format_timestamp(len(final) / 1000.0)} ({len(final)/1000.0:.2f}s)")
@@ -390,7 +371,7 @@ def build_continuous_mix(args) -> None:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(description=f"WeaveShift {APP_VERSION} setlist builder")
+    p = argparse.ArgumentParser(description=f"{APP_NAME}")
     p.add_argument("setlist", help="JSON manifest or text file with one audio path per line")
     p.add_argument(
         "-o",
@@ -412,43 +393,17 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p.add_argument("--make-snippets", action="store_true", help="Export transition audition snippets from the final continuous mix")
     p.add_argument(
-        "--profile",
-        default="edm",
-        help="Built-in scoring profile for --transition-mode profile: edm, smooth, vocal_trance, vocal_trance_strict, lounge, jazz, heart, cinematic",
-    )
-    p.add_argument("--scoring-config", default=None, help="Path to a TOML scoring profile; overrides --profile")
-    p.add_argument(
-        "--vocal-method",
-        default="heuristic",
-        choices=list(VOCAL_METHODS),
-        help="Vocal analysis method ('auto' tries Demucs then heuristic; 'none' skips vocal detection). Default is 'heuristic' (fast); two-track mode defaults to 'auto'.",
-    )
-    p.add_argument(
         "--allow-outside-manifest-dir",
         action="store_true",
         help="Allow track paths (absolute, '..', or symlinked) that resolve outside the setlist's directory",
     )
-    p.add_argument("--no-mps", action="store_true", help="Disable Apple Silicon MPS for Demucs")
-    p.add_argument("--search-a-sec", type=float, default=35.0, help="Seconds of each outgoing track outro to analyze")
-    p.add_argument("--search-b-sec", type=float, default=35.0, help="Seconds of each incoming track intro to analyze")
-    p.add_argument("--max-trim-a-sec", type=float, default=8.0, help="Maximum seconds allowed to trim from outgoing track tail")
-    p.add_argument("--b-cue-max-sec", type=float, default=10.0, help="Latest allowed cue point in incoming track intro")
+    add_planning_arguments(p, vocal_default="heuristic")
     p.add_argument("--apply-manifest-settings", action="store_true", help="Apply optional settings object from JSON manifest")
     return p
 
 
 def main(argv: Optional[List[str]] = None) -> int:
-    parser = build_parser()
-    ns = parser.parse_args(argv)
-    try:
-        build_continuous_mix(ns)
-        return 0
-    except KeyboardInterrupt:
-        print("\nInterrupted by user.", file=sys.stderr)
-        return 130
-    except Exception as exc:
-        print(f"Error: {exc}", file=sys.stderr)
-        return 1
+    return run_cli(build_parser(), build_continuous_mix, argv)
 
 
 if __name__ == "__main__":

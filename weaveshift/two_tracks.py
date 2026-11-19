@@ -1,113 +1,35 @@
 #!/usr/bin/env python3
-"""WeaveShift two-track CLI and public facade."""
+"""WeaveShift two-track CLI: render and rank transitions between two tracks."""
 from __future__ import annotations
 
 import argparse
-import json
-import sys
 from dataclasses import asdict
-from pathlib import Path
 from typing import Any, List, Optional
 
-from weaveshift._version import APP_VERSION
-from weaveshift.profiles import load_scoring_profile
-from weaveshift.audio import (
-    AudioAnalysis,
-    LOSSLESS_WAV_SUBTYPES,
-    warn_if_vocals_skipped,
-    VOCAL_METHODS,
-    MAX_OVERLAP_SEC,
-    OVERLAP_LENGTHS,
-    SUPPORTED_WAV_SUFFIXES,
-    TransitionCandidate,
-    VocalSegment,
-    analyze_audio,
-    analyze_vocals,
-    camelot_compat,
-    clamp,
-    compute_local_energy_curve,
-    compute_local_lufs_curve,
-    dbfs_from_samples,
-    energy_db_from_curve,
-    estimate_key,
-    format_timestamp,
-    get_torch_device,
-    librosa,
-    lufs_from_curve,
-    overlap_vocal_collision,
-    parse_manual_key,
-    pydub_rms_dbfs,
-    safe_float,
-    segments_from_activity,
-    stereo_dbfs_from_samples,
-    validate_loaded_segment_parity,
-    validate_audio_input,
-    validate_audio_output,
-    validate_audio_pair_compatibility,
-    validate_wav_input,
-    validate_wav_output,
-    validate_wav_pair_compatibility,
-    output_format_suffix,
-    resolve_wav_export_subtype,
-    vocal_active_fraction,
-    vocal_segments_demucs,
-    vocal_segments_heuristic,
-    wav_info,
+from weaveshift._cli import (
+    APP_NAME,
+    CANDIDATE_MODES,
+    add_planning_arguments,
+    report_widened_windows,
+    resolve_output,
+    run_cli,
+    warn_unused_profile,
+    write_report,
 )
-from weaveshift.scoring import (
-    build_candidate_times,
-    candidate_too_close,
-    choose_candidates,
-    nearest_distance,
-    profile_candidate_score,
-    profile_search_parameters,
-    score_candidate,
-    smooth_candidate_score,
-)
-from weaveshift.rendering import (
-    SUBTYPE_TO_WAV_CODEC,
-    apply_gain_ramp,
-    apply_soft_duck,
-    conservative_sum_peak_db,
-    export_audio,
-    export_wav_matching_subtype,
-    render_candidate,
-)
+from weaveshift.audio import format_timestamp, resolve_wav_export_subtype, warn_if_vocals_skipped
 from weaveshift.plan import plan_two_track_mix
-from weaveshift.reports import (
-    build_two_track_report,
-    candidate_verdict,
-    ranked_candidate_summary,
-    serialize_analysis,
-)
+from weaveshift.rendering import render_candidate
+from weaveshift.reports import build_two_track_report
 
-APP_NAME = f"WeaveShift {APP_VERSION}"
 DEFAULT_TWO_TRACK_OUTPUT = "weaveshift_transition.wav"
 TWO_TRACK_REPORT_SUFFIX = ".weaveshift_mix_report.json"
 
-TWO_TRACK_MODES = (
-    "all",
-    "vocal_safe",
-    "beat_aligned",
-    "quick_cut",
-    "smooth",
-    "profile",
-    "vocal_ducked",
-    "long_blend",
-)
+TWO_TRACK_MODES = ("all", *CANDIDATE_MODES)
 
 
 def run(args) -> None:
-    out_base = validate_audio_output(args.output)
-    base = out_base.with_suffix("")
-    fmt_suffix = output_format_suffix(out_base)
-
-    if args.mode != "profile" and (args.scoring_config is not None or args.profile != "edm"):
-        print(
-            "Warning: --profile/--scoring-config are only used with --mode profile; ignoring profile settings for this run.",
-            file=sys.stderr,
-        )
-
+    _, base, fmt_suffix = resolve_output(args.output)
+    warn_unused_profile(args, args.mode, "--mode")
     warn_if_vocals_skipped(args.vocal_method)
     mix_plan = plan_two_track_mix(
         args.track_a,
@@ -141,14 +63,7 @@ def run(args) -> None:
     print(f"Track B format: {b_wav_info['samplerate']} Hz, {b_wav_info['channels']} ch, {b_wav_info['subtype']}")
     if scoring_profile is not None:
         print(f"Using scoring profile: {scoring_profile.name} - {scoring_profile.description}")
-    if mix_plan.effective_search_a_sec > float(args.search_a_sec):
-        print(
-            f"Note: widened Track A analysis window from {args.search_a_sec:.1f}s to {mix_plan.effective_search_a_sec:.1f}s so local RMS covers max trim + overlap."
-        )
-    if mix_plan.effective_search_b_sec > float(args.search_b_sec):
-        print(
-            f"Note: widened Track B analysis window from {args.search_b_sec:.1f}s to {mix_plan.effective_search_b_sec:.1f}s so local RMS covers cue search + overlap."
-        )
+    report_widened_windows(args, mix_plan)
 
     if args.mode != "all" and len(candidates) == 1 and candidates[0].name != args.mode:
         print(
@@ -177,7 +92,7 @@ def run(args) -> None:
             cand,
             out,
             snippet,
-            output_subtype=wav_export_subtype if fmt_suffix == ".wav" else None,
+            output_subtype=wav_export_subtype,
         )
         outputs.append(
             {
@@ -202,11 +117,10 @@ def run(args) -> None:
         track_b=mix_plan.track_b_analysis,
         outputs=outputs,
         wav_format_validation={"track_a": a_wav_info, "track_b": b_wav_info},
-        profile=getattr(scoring_profile, "name", None),
+        profile=scoring_profile.name if scoring_profile else None,
         scoring_config=args.scoring_config,
     )
-    report_path = base.with_name(base.name + TWO_TRACK_REPORT_SUFFIX)
-    report_path.write_text(json.dumps(report, indent=2), encoding="utf-8")
+    report_path = write_report(base, TWO_TRACK_REPORT_SUFFIX, report)
     print(f"Wrote ranked mix report: {report_path}")
 
 
@@ -230,7 +144,7 @@ def print_rankings(ranked: list[dict[str, Any]], outputs_by_name: dict[str, dict
 
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
-        description=f"WeaveShift {APP_VERSION}: two-track mixing with ranked transition recommendations"
+        description=f"{APP_NAME}: two-track mixing with ranked transition recommendations"
     )
     p.add_argument("track_a", help="Outgoing Track A audio file (.wav or .mp3)")
     p.add_argument("track_b", help="Incoming Track B audio file (.wav or .mp3)")
@@ -248,20 +162,8 @@ def build_parser() -> argparse.ArgumentParser:
         default="all",
         help="Which candidate(s) to render",
     )
-    p.add_argument("--profile", default="edm", help="Built-in scoring profile to use when --mode profile is selected")
-    p.add_argument("--scoring-config", default=None, help="Path to a TOML scoring profile; overrides --profile")
     p.add_argument("--make-snippets", action="store_true", help="Also export short audition snippets around each transition")
-    p.add_argument(
-        "--vocal-method",
-        choices=list(VOCAL_METHODS),
-        default="auto",
-        help="Vocal analysis method ('auto', 'demucs', 'heuristic', or 'none' to skip vocal detection).",
-    )
-    p.add_argument("--no-mps", action="store_true", help="Do not try Apple Silicon MPS for Demucs; use CUDA if available or CPU")
-    p.add_argument("--search-a-sec", type=float, default=35.0, help="Analyze this many seconds from the end of Track A")
-    p.add_argument("--search-b-sec", type=float, default=35.0, help="Analyze this many seconds from the beginning of Track B")
-    p.add_argument("--max-trim-a-sec", type=float, default=8.0, help="Maximum seconds allowed to trim from Track A tail")
-    p.add_argument("--b-cue-max-sec", type=float, default=10.0, help="Latest allowed cue point in Track B intro")
+    add_planning_arguments(p, vocal_default="auto")
     p.add_argument("--a-bpm", type=float, default=None, help="Manual Track A BPM override")
     p.add_argument("--b-bpm", type=float, default=None, help="Manual Track B BPM override")
     p.add_argument("--a-key", type=str, default=None, help="Manual Track A key override, e.g. 'E major'")
@@ -270,17 +172,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: Optional[List[str]] = None) -> int:
-    parser = build_parser()
-    ns = parser.parse_args(argv)
-    try:
-        run(ns)
-        return 0
-    except KeyboardInterrupt:
-        print("\nInterrupted by user.", file=sys.stderr)
-        return 130
-    except Exception as exc:
-        print(f"Error: {exc}", file=sys.stderr)
-        return 1
+    return run_cli(build_parser(), run, argv)
 
 
 if __name__ == "__main__":

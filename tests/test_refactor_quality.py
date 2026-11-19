@@ -7,7 +7,8 @@ from weaveshift.reports import (
     validate_report_schema,
 )
 from weaveshift.scoring import DEFAULT_TECHNICAL_SCORING, TechnicalScoringConfig, score_candidate
-from weaveshift.two_tracks import TransitionCandidate, ranked_candidate_summary
+from weaveshift.audio import TransitionCandidate
+from weaveshift.reports import ranked_candidate_summary
 
 
 def analysis(role: str, *, duration=30.0, beats=None, vocals=None, bpm=128.0, camelot="12B", energy_db=-14.0):

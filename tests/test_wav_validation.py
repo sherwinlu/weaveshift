@@ -3,7 +3,7 @@ import numpy as np
 import soundfile as sf
 import pytest
 
-from weaveshift.two_tracks import validate_wav_input, validate_wav_pair_compatibility, OVERLAP_LENGTHS, MAX_OVERLAP_SEC
+from weaveshift.audio import MAX_OVERLAP_SEC, OVERLAP_LENGTHS, validate_audio_input, validate_audio_pair_compatibility
 
 
 def write_wav(path: Path, sr=48000, subtype="PCM_16", channels=2):
@@ -21,14 +21,14 @@ def test_overlap_constant_is_source_of_truth():
 def test_validate_real_wav(tmp_path):
     p = tmp_path / "a.wav"
     write_wav(p)
-    assert validate_wav_input(str(p), "Track A") == p
+    assert validate_audio_input(str(p), "Track A") == p
 
 
 def test_reject_mislabeled_wav(tmp_path):
     p = tmp_path / "fake.wav"
     p.write_bytes(b"not a wave")
     with pytest.raises(ValueError):
-        validate_wav_input(str(p), "Track A")
+        validate_audio_input(str(p), "Track A")
 
 
 def test_reject_mismatched_sample_rate(tmp_path):
@@ -37,7 +37,7 @@ def test_reject_mismatched_sample_rate(tmp_path):
     write_wav(a, sr=48000)
     write_wav(b, sr=44100)
     with pytest.raises(ValueError):
-        validate_wav_pair_compatibility(a, b)
+        validate_audio_pair_compatibility(a, b)
 
 
 def test_missing_file_cli_exits_cleanly():
@@ -63,7 +63,7 @@ def test_export_wav_matching_subtype_preserves_pcm24(tmp_path):
     explicitly rather than trusting the in-memory width.
     """
     from pydub import AudioSegment
-    from weaveshift.two_tracks import export_wav_matching_subtype
+    from weaveshift.rendering import export_wav_matching_subtype
 
     src = tmp_path / "src24.wav"
     write_wav(src, subtype="PCM_24")
@@ -81,7 +81,7 @@ def test_export_wav_matching_subtype_preserves_pcm24(tmp_path):
 
 def test_export_wav_matching_subtype_preserves_pcm16(tmp_path):
     from pydub import AudioSegment
-    from weaveshift.two_tracks import export_wav_matching_subtype
+    from weaveshift.rendering import export_wav_matching_subtype
 
     src = tmp_path / "src16.wav"
     write_wav(src, subtype="PCM_16")
@@ -100,7 +100,8 @@ def test_candidate_too_close_deduplicates_vocal_ducked():
     a re-implementation of it.
     """
     from dataclasses import replace
-    from weaveshift.two_tracks import TransitionCandidate, candidate_too_close
+    from weaveshift.audio import TransitionCandidate
+    from weaveshift.scoring import candidate_too_close
 
     base = TransitionCandidate(
         name="candidate", score=0.9, a_fade_start_sec=40.0, a_cut_sec=48.0,
@@ -146,7 +147,7 @@ def test_two_track_cli_short_track_fails_clearly_and_creates_no_false_success(tm
 
 
 def test_heuristic_vocal_length_guard_uses_sample_count_not_channel_count(monkeypatch):
-    from weaveshift.two_tracks import vocal_segments_heuristic, librosa
+    from weaveshift.audio import librosa, vocal_segments_heuristic
 
     called = {"hpss": False}
 

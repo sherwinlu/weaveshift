@@ -1,4 +1,5 @@
-from weaveshift.two_tracks import TransitionCandidate, smooth_candidate_score
+from weaveshift.audio import TransitionCandidate
+from weaveshift.scoring import smooth_candidate_score
 from weaveshift.plan import select_candidate
 
 

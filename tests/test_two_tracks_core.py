@@ -5,24 +5,10 @@ import soundfile as sf
 from pydub import AudioSegment
 
 from weaveshift.profiles import ScoringProfile
-from weaveshift.two_tracks import (
-    AudioAnalysis,
-    TransitionCandidate,
-    VocalSegment,
-    apply_gain_ramp,
-    apply_soft_duck,
-    build_candidate_times,
-    camelot_compat,
-    candidate_verdict,
-    choose_candidates,
-    format_timestamp,
-    ranked_candidate_summary,
-    render_candidate,
-    score_candidate,
-    serialize_analysis,
-    validate_loaded_segment_parity,
-    validate_wav_output,
-)
+from weaveshift.audio import AudioAnalysis, TransitionCandidate, VocalSegment, camelot_compat, format_timestamp, validate_audio_output, validate_loaded_segment_parity
+from weaveshift.rendering import apply_gain_ramp, apply_soft_duck, render_candidate
+from weaveshift.reports import candidate_verdict, ranked_candidate_summary, serialize_analysis
+from weaveshift.scoring import build_candidate_times, choose_candidates, score_candidate
 
 
 def analysis(
@@ -158,7 +144,7 @@ def test_audio_helpers_and_report_serialization(tmp_path):
 
     assert len(ramped) == len(seg)
     assert len(ducked) == len(seg)
-    assert validate_wav_output(str(tmp_path / "mix")) == tmp_path / "mix.wav"
+    assert validate_audio_output(str(tmp_path / "mix")) == tmp_path / "mix.wav"
     assert format_timestamp(65.2) == "1:05"
     assert camelot_compat("12B", "12A") > camelot_compat("12B", "7A")
     assert "possible vocal overlap" in candidate_verdict(candidate(vocal_collision_score=0.4))

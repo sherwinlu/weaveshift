@@ -170,19 +170,6 @@ def validate_audio_input(path: str, label: str) -> Path:
     return p
 
 
-def validate_wav_input(path: str, label: str) -> Path:
-    """Validate that an input is a real, supported WAV file, not just a .wav suffix."""
-    p = Path(path)
-    if not p.exists():
-        raise FileNotFoundError(f"{label} file does not exist: {p}")
-    if p.suffix.lower() not in SUPPORTED_WAV_SUFFIXES:
-        raise ValueError(
-            f"{label} must be a WAV file. Got: {p.name}\n"
-            "Use validate_audio_input() for MP3 sources, or export a WAV master before mixing."
-        )
-    return validate_audio_input(path, label)
-
-
 def wav_info(path: Path) -> Dict[str, object]:
     info = sf.info(str(path))
     return {
@@ -233,24 +220,6 @@ def validate_audio_pair_compatibility(track_a: Path, track_b: Path) -> Tuple[Dic
             "Export/resample both masters to the same sample rate and channel count before mixing. "
             "Mixed WAV and MP3 inputs are allowed when those match. "
             "For all-WAV chains, subtype must also match. Recommended: 48 kHz, stereo, PCM_24."
-        )
-    return a_info, b_info
-
-
-def validate_wav_pair_compatibility(track_a: Path, track_b: Path) -> Tuple[Dict[str, object], Dict[str, object]]:
-    """Require A/B WAV format parity (lossless subtype included)."""
-    a_info = wav_info(track_a)
-    b_info = wav_info(track_b)
-    fields = ("samplerate", "channels", "subtype")
-    mismatches = [(f, a_info[f], b_info[f]) for f in fields if a_info[f] != b_info[f]]
-    if mismatches:
-        details = "\n".join(f"  - {field}: Track A={a_val}, Track B={b_val}" for field, a_val, b_val in mismatches)
-        raise ValueError(
-            "Track A and Track B WAV formats do not match. Refusing to mix rather than letting "
-            "pydub/ffmpeg silently resample or change bit depth.\n"
-            f"{details}\n"
-            "Export/resample both masters to the same sample rate, channel count, and WAV subtype "
-            "before running AutoMix. Recommended: 48 kHz, stereo, PCM_24 or 44.1 kHz, stereo, PCM_24."
         )
     return a_info, b_info
 
@@ -354,17 +323,6 @@ def validate_audio_output(path: str) -> Path:
     if not p.suffix:
         p = p.with_suffix(".wav")
     return p
-
-
-def validate_wav_output(path: str) -> Path:
-    p = Path(path)
-    if p.suffix and p.suffix.lower() not in SUPPORTED_WAV_SUFFIXES:
-        raise ValueError(f"Output must be .wav. Got: {p.name}")
-    return validate_audio_output(path)
-
-
-def output_format_suffix(path: Path) -> str:
-    return path.suffix.lower() if path.suffix else ".wav"
 
 
 # -----------------------------

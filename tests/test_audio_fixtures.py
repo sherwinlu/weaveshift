@@ -12,9 +12,9 @@ from weaveshift.audio import (
     lufs_from_curve,
     parse_manual_key,
     validate_loaded_segment_parity,
-    validate_wav_input,
-    validate_wav_output,
-    validate_wav_pair_compatibility,
+    validate_audio_input,
+    validate_audio_output,
+    validate_audio_pair_compatibility,
     analyze_audio,
     vocal_segments_heuristic,
 )
@@ -23,36 +23,37 @@ from pydub import AudioSegment
 from tests.audio_helpers import write_stereo_wav
 
 
-def test_validate_wav_input_rejects_missing_and_bad_suffix(tmp_path):
+def test_validate_audio_input_rejects_missing_and_bad_suffix(tmp_path):
     with pytest.raises(FileNotFoundError):
-        validate_wav_input(str(tmp_path / "missing.wav"), "Track A")
+        validate_audio_input(str(tmp_path / "missing.wav"), "Track A")
 
-    fake = tmp_path / "track.mp3"
-    fake.write_bytes(b"ID3")
-    with pytest.raises(ValueError, match="must be a WAV file"):
-        validate_wav_input(str(fake), "Track A")
+    fake = tmp_path / "track.flac"
+    fake.write_bytes(b"fLaC")
+    with pytest.raises(ValueError, match="must be a WAV or MP3 file"):
+        validate_audio_input(str(fake), "Track A")
 
 
-def test_validate_wav_input_rejects_non_wave_header(tmp_path):
+def test_validate_audio_input_rejects_non_wave_header(tmp_path):
     bad = tmp_path / "bad.wav"
     bad.write_bytes(b"NOTAVALIDWAVFILE")
     with pytest.raises(ValueError, match="not a RIFF/RF64 WAVE file"):
-        validate_wav_input(str(bad), "Track A")
+        validate_audio_input(str(bad), "Track A")
 
 
-def test_validate_wav_pair_compatibility_detects_samplerate_mismatch(tmp_path):
+def test_validate_audio_pair_compatibility_detects_samplerate_mismatch(tmp_path):
     a = write_stereo_wav(tmp_path / "a.wav", sr=48000)
     b = write_stereo_wav(tmp_path / "b.wav", sr=44100)
-    validate_wav_input(str(a), "Track A")
-    validate_wav_input(str(b), "Track B")
-    with pytest.raises(ValueError, match="WAV formats do not match"):
-        validate_wav_pair_compatibility(a, b)
+    validate_audio_input(str(a), "Track A")
+    validate_audio_input(str(b), "Track B")
+    with pytest.raises(ValueError, match="audio formats do not match"):
+        validate_audio_pair_compatibility(a, b)
 
 
-def test_validate_wav_output_normalizes_suffix(tmp_path):
-    assert validate_wav_output(str(tmp_path / "mix")) == tmp_path / "mix.wav"
+def test_validate_audio_output_normalizes_suffix(tmp_path):
+    assert validate_audio_output(str(tmp_path / "mix")) == tmp_path / "mix.wav"
+    assert validate_audio_output(str(tmp_path / "mix.mp3")) == tmp_path / "mix.mp3"
     with pytest.raises(ValueError):
-        validate_wav_output(str(tmp_path / "mix.mp3"))
+        validate_audio_output(str(tmp_path / "mix.flac"))
 
 
 def test_curve_helpers_and_key_parsing():

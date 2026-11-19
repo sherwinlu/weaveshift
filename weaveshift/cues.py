@@ -19,6 +19,7 @@ from typing import Dict, Iterable, List, Optional, Tuple
 
 import numpy as np
 
+from weaveshift._cli import run_cli
 from weaveshift._paths import expand_user, is_within
 from weaveshift.audio import (
     suppress_audio_warnings,
@@ -692,19 +693,10 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: Optional[List[str]] = None) -> int:
-    args = build_parser().parse_args(argv)
-    try:
-        return _run(args)
-    except KeyboardInterrupt:
-        print("\nInterrupted by user.", file=sys.stderr)
-        return 130
-    except Exception as exc:
-        print(f"Error: {exc}", file=sys.stderr)
-        return 1
+    return run_cli(build_parser(), run, argv)
 
 
-def _run(args: argparse.Namespace) -> int:
-
+def run(args: argparse.Namespace) -> None:
     tracks = read_tracks(args.manifest)
     timeline = read_timeline(args.timeline)
 
@@ -769,7 +761,6 @@ def _run(args: argparse.Namespace) -> int:
     print("- If a cue is off, move it by ear in your editor.")
     print("- For video editors, useful audio_start values are usually main_peak_final_sec - 4 to main_peak_final_sec.")
     print("- Use transition_out_timestamp for visual crossfades between track worlds.")
-    return 0
 
 
 if __name__ == "__main__":
