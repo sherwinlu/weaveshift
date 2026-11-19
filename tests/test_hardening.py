@@ -9,7 +9,6 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-import weaveshift.plan as weaveshift_plan
 import weaveshift.setlist as weaveshift_setlist
 from weaveshift.audio import AudioAnalysis, TransitionCandidate
 from weaveshift.plan import (
@@ -448,8 +447,6 @@ def test_soft_duck_target_without_negative_db_is_rejected():
 
 
 def test_soft_duck_db_zero_switches_off_inherited_duck():
-    from dataclasses import replace
-
     from weaveshift.plan import _soft_duck_settings
 
     base = TransitionCandidate(

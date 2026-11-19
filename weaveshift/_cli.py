@@ -9,6 +9,8 @@ from typing import Callable, Mapping, Optional, Sequence
 
 from weaveshift._version import APP_VERSION
 from weaveshift.audio import VOCAL_METHODS, validate_audio_output
+from weaveshift.plan import SetlistMixPlan, TwoTrackMixPlan
+from weaveshift.profiles import BUILTIN_PROFILES
 
 APP_NAME = f"WeaveShift {APP_VERSION}"
 
@@ -25,7 +27,11 @@ CANDIDATE_MODES = (
 
 def add_planning_arguments(parser: argparse.ArgumentParser, *, vocal_default: str) -> None:
     """Add the scoring, vocal and search-window flags both mixers accept."""
-    parser.add_argument("--profile", default="edm", help="Built-in scoring profile used with the 'profile' mode")
+    parser.add_argument(
+        "--profile",
+        default="edm",
+        help=f"Built-in scoring profile used with the 'profile' mode: {', '.join(BUILTIN_PROFILES)}",
+    )
     parser.add_argument("--scoring-config", default=None, help="Path to a TOML scoring profile; overrides --profile")
     parser.add_argument(
         "--vocal-method",
@@ -67,7 +73,7 @@ def warn_unused_profile(args: argparse.Namespace, mode: str, mode_flag: str) -> 
         )
 
 
-def report_widened_windows(args: argparse.Namespace, plan) -> None:
+def report_widened_windows(args: argparse.Namespace, plan: TwoTrackMixPlan | SetlistMixPlan) -> None:
     """Tell the user when the planner analyzed more audio than they asked for."""
     for label, requested, effective in (
         ("A", args.search_a_sec, plan.effective_search_a_sec),
