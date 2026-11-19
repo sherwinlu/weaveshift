@@ -42,20 +42,22 @@ class ScoringProfile:
     preferences: Dict[str, Any] = field(default_factory=dict)
     limits: Dict[str, float] = field(default_factory=dict)
 
-    def weight(self, key: str, default: float) -> float:
+    @staticmethod
+    def _number(table: Dict[str, Any], key: str, default: float) -> float:
+        """Read a numeric entry, falling back to the default when it is missing or not a number."""
         try:
-            return float(self.weights.get(key, default))
+            return float(table.get(key, default))
         except (TypeError, ValueError):
             return default
+
+    def weight(self, key: str, default: float) -> float:
+        return self._number(self.weights, key, default)
 
     def pref(self, key: str, default: Any) -> Any:
         return self.preferences.get(key, default)
 
     def limit(self, key: str, default: float) -> float:
-        try:
-            return float(self.limits.get(key, default))
-        except (TypeError, ValueError):
-            return default
+        return self._number(self.limits, key, default)
 
 
 def builtin_profile_path(name: str) -> Path:

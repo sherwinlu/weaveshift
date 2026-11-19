@@ -21,6 +21,7 @@ import numpy as np
 from weaveshift._cli import run_cli
 from weaveshift._paths import expand_user, is_within
 from weaveshift.audio import (
+    frame_times,
     suppress_audio_warnings,
     librosa,
     load_mono_analysis_audio,
@@ -450,22 +451,19 @@ def analyze_track(audio_file: Path, bpm_hint: Optional[float]) -> Tuple[float, O
         hop_length = 512
 
         rms = librosa.feature.rms(y=y, frame_length=2048, hop_length=hop_length)[0]
-        def frame_times(frames: np.ndarray) -> np.ndarray:
-            return librosa.frames_to_time(np.arange(len(frames)), sr=sr, hop_length=hop_length)
-
-        times = frame_times(rms)
+        times = frame_times(len(rms), sr, hop_length)
         frame_step = median_step_sec(times)
         rms_db = librosa.power_to_db(np.maximum(rms, 1e-10) ** 2, ref=np.max)
         energy = moving_average(rms_db, max(3, int(round(2.5 / frame_step))))
 
         onset_env = librosa.onset.onset_strength(y=y, sr=sr, hop_length=hop_length)
-        onset_times = frame_times(onset_env)
+        onset_times = frame_times(len(onset_env), sr, hop_length)
         onset_smooth = moving_average(onset_env, max(3, int(round(2.0 / median_step_sec(onset_times)))))
 
         onset_interp = np.interp(times, onset_times, onset_smooth)
 
         centroid = librosa.feature.spectral_centroid(y=y, sr=sr, hop_length=hop_length)[0]
-        centroid = np.interp(times, frame_times(centroid), centroid)
+        centroid = np.interp(times, frame_times(len(centroid), sr, hop_length), centroid)
         centroid_z = robust_z(moving_average(centroid, max(3, int(round(3.0 / frame_step)))))
 
     energy_z = robust_z(energy)

@@ -18,21 +18,9 @@ import numpy as np
 import soundfile as sf
 from pydub import AudioSegment
 
-try:
-    import pyloudnorm as pyln
-except Exception:  # pragma: no cover
-    pyln = None
-
-try:
-    import librosa
-except Exception as exc:  # pragma: no cover
-    print("ERROR: librosa is required. Install with: python3 -m pip install librosa soundfile", file=sys.stderr)
-    raise exc
-
-try:
-    from scipy.ndimage import maximum_filter1d
-except Exception:  # pragma: no cover
-    maximum_filter1d = None
+import librosa
+import pyloudnorm as pyln
+from scipy.ndimage import maximum_filter1d
 
 
 logger = logging.getLogger(__name__)
@@ -285,6 +273,10 @@ def read_audio_window(path: str, start_sec: float, duration_sec: float) -> Tuple
 def to_mono(y_frames: np.ndarray) -> np.ndarray:
     """Average a (frames, channels) float array down to mono float32."""
     return np.mean(y_frames, axis=1).astype(np.float32) if y_frames.size else np.zeros(0, dtype=np.float32)
+
+
+def frame_times(n_frames: int, sr: int, hop_length: int) -> np.ndarray:
+    return librosa.frames_to_time(np.arange(n_frames), sr=sr, hop_length=hop_length)
 
 
 def resample_for_analysis(y: np.ndarray, orig_sr: int, target_sr: int) -> np.ndarray:
@@ -543,8 +535,6 @@ def compute_local_lufs_curve(
     hop_sec: float = 0.25,
 ) -> Dict[str, np.ndarray]:
     """Precompute short-term LUFS windows for perceptual loudness scoring."""
-    if pyln is None:
-        return {"times": np.array([], dtype=np.float32), "lufs": np.array([], dtype=np.float32)}
     arr = np.asarray(y, dtype=np.float32)
     if arr.ndim == 1:
         arr = arr[:, None]
@@ -769,9 +759,8 @@ def vocal_segments_heuristic(y: np.ndarray, sr: int, offset_sec: float, threshol
         db = 20 * np.log10(rms + 1e-9)
         thr = max(threshold_db, float(np.percentile(db, 70) - 8.0))
         active = (db > thr) & (ratio > np.percentile(ratio, 45))
-        if maximum_filter1d is not None:
-            active = maximum_filter1d(active.astype(float), size=5) > 0
-        times = librosa.frames_to_time(np.arange(len(active)), sr=sr, hop_length=512)
+        active = maximum_filter1d(active.astype(float), size=5) > 0
+        times = frame_times(len(active), sr, 512)
         return segments_from_activity(times, active, db, offset=offset_sec, merge_gap=1.2, min_len=0.4)
     except Exception:
         return []
@@ -807,9 +796,8 @@ def _vocal_segments_from_mono(
     else:
         thr = threshold_db
     active = db > thr
-    if maximum_filter1d is not None:
-        active = maximum_filter1d(active.astype(float), size=3) > 0
-    times = librosa.frames_to_time(np.arange(len(active)), sr=sr, hop_length=hop)
+    active = maximum_filter1d(active.astype(float), size=3) > 0
+    times = frame_times(len(active), sr, hop)
     return segments_from_activity(times, active, db, offset=start_sec, merge_gap=1.5, min_len=0.35)
 
 
@@ -860,6 +848,12 @@ def _demucs_cli_vocals_path(audio_path: str, model: str = "htdemucs") -> Path:
     return generated[0]
 
 
+def _demucs_separate(separator_cls, wav, sr: int, device: str):
+    separator = separator_cls(model="htdemucs", device=device)
+    _origin, separated = separator.separate_tensor(wav.to(device), sr)
+    return separated
+
+
 def vocal_segments_demucs(
     audio_path: str,
     start_sec: float,
@@ -896,16 +890,12 @@ def vocal_segments_demucs(
 
     device = get_torch_device(prefer_mps=prefer_mps)
     try:
-        separator = Separator(model="htdemucs", device=device)
-        _origin, separated = separator.separate_tensor(wav.to(device), sr)
+        separated = _demucs_separate(Separator, wav, sr, device)
     except Exception as exc:
-        if device != "cpu":
-            logger.warning("Demucs failed on %s; retrying on CPU. Reason: %s", device, exc)
-            device = "cpu"
-            separator = Separator(model="htdemucs", device=device)
-            _origin, separated = separator.separate_tensor(wav.to(device), sr)
-        else:
+        if device == "cpu":
             raise
+        logger.warning("Demucs failed on %s; retrying on CPU. Reason: %s", device, exc)
+        separated = _demucs_separate(Separator, wav, sr, "cpu")
 
     vocals = separated["vocals"]
     if vocals.ndim == 3:  # batch, channel, time
