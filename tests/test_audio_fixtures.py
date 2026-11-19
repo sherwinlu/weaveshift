@@ -7,8 +7,8 @@ from weaveshift.audio import (
     camelot_compat,
     compute_local_energy_curve,
     compute_local_lufs_curve,
-    dbfs_from_samples,
     energy_db_from_curve,
+    stereo_dbfs_from_samples,
     lufs_from_curve,
     parse_manual_key,
     validate_loaded_segment_parity,
@@ -87,8 +87,8 @@ def test_compute_local_energy_and_lufs_curves():
 
 
 def test_dbfs_from_samples_handles_empty_and_signal():
-    assert dbfs_from_samples(np.array([], dtype=np.float32))[0] == -120.0
-    rms_db, peak_db = dbfs_from_samples(np.array([0.1, -0.1], dtype=np.float32))
+    assert stereo_dbfs_from_samples(np.array([], dtype=np.float32))[0] == -120.0
+    rms_db, peak_db = stereo_dbfs_from_samples(np.array([0.1, -0.1], dtype=np.float32))
     assert rms_db > -40.0
     assert peak_db > rms_db - 1.0
 

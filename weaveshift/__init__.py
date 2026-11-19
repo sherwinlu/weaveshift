@@ -29,7 +29,6 @@ from weaveshift.rendering import (
     build_transition_audio,
     export_audio,
     render_candidate,
-    render_transition_tail,
 )
 from weaveshift.reports import (
     build_setlist_report,
@@ -86,7 +85,6 @@ __all__ = [
     "profile_candidate_score",
     "ranked_candidate_summary",
     "render_candidate",
-    "render_transition_tail",
     "score_candidate",
     "serialize_analysis",
     "smooth_candidate_score",

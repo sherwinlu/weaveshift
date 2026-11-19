@@ -34,10 +34,11 @@ from weaveshift.audio import (
     NaturalTransition,
     format_timestamp,
     resolve_wav_export_subtype,
+    sec_to_ms,
     warn_if_vocals_skipped,
 )
 from weaveshift.plan import MAX_NATURAL_PAUSE_SEC, TrackSpec, plan_setlist_mix
-from weaveshift.rendering import export_audio, render_transition_tail, sec_to_ms
+from weaveshift.rendering import build_transition_audio, export_audio
 from weaveshift.reports import build_setlist_report, candidate_verdict
 
 APP_NAME = f"{BASE_APP_NAME} Setlist Builder"
@@ -269,7 +270,7 @@ def build_continuous_mix(args) -> None:
 
         mix_transition_start_sec = junction.mix_transition_start_sec
         mix_transition_start_ms = sec_to_ms(mix_transition_start_sec)
-        tail = render_transition_tail(segments[i], segments[i + 1], selected)
+        tail = build_transition_audio(segments[i], segments[i + 1], selected).body
         final = final[:mix_transition_start_ms] + tail
 
         if isinstance(selected, NaturalTransition):

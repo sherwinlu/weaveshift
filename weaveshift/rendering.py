@@ -16,12 +16,8 @@ from weaveshift.audio import (
     SetlistTransition,
     TransitionCandidate,
     clamp,
+    sec_to_ms,
 )
-
-
-def sec_to_ms(sec: float) -> int:
-    """Convert seconds to milliseconds using round-half-up for splice/render parity."""
-    return int(round(float(sec) * 1000.0))
 
 
 @dataclass(frozen=True)
@@ -94,9 +90,8 @@ def _apply_envelope(
     return result.set_sample_width(original_width) if original_width == 3 else result
 
 
-def apply_gain_ramp(seg: AudioSegment, start_gain_db: float, end_gain_db: float, step_ms: int = 20) -> AudioSegment:
-    """Apply a sample-smooth linear gain ramp with NumPy (`step_ms` retained for signature compatibility)."""
-    _ = step_ms
+def apply_gain_ramp(seg: AudioSegment, start_gain_db: float, end_gain_db: float) -> AudioSegment:
+    """Apply a sample-smooth linear gain ramp with NumPy."""
     start_amp = 10.0 ** (float(start_gain_db) / 20.0)
     end_amp = 10.0 ** (float(end_gain_db) / 20.0)
     return _apply_envelope(
@@ -236,11 +231,6 @@ def snippet_window_ms(cand: SetlistTransition, total_len_ms: int) -> Tuple[int, 
     snip_start = max(0, a_fade_start_ms - 12000)
     snip_end = min(total_len_ms, a_fade_start_ms + overlap_ms + 18000)
     return snip_start, snip_end
-
-
-def render_transition_tail(seg_a: AudioSegment, seg_b: AudioSegment, cand: SetlistTransition) -> AudioSegment:
-    """Return only the transition body from Track A fade start onward."""
-    return build_transition_audio(seg_a, seg_b, cand).body
 
 
 def render_candidate(

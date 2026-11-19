@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import math
 import sys
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Dict, List, Optional, Sequence
 
@@ -17,10 +17,12 @@ from weaveshift.audio import (
     SetlistTransition,
     TransitionCandidate,
     compatibility_fields,
+    format_mismatches,
     analyze_audio,
     audio_info,
     load_audio_segment,
     lossy_input_note,
+    sec_to_ms,
     validate_audio_input,
     validate_audio_pair_compatibility,
     validate_loaded_segment_parity,
@@ -178,6 +180,11 @@ def _validate_override_source_bounds(
     negative slice start as "from the end of the segment," so a typo like
     b_cue_sec=-3 would silently render the wrong part of Track B.
     """
+    if a_cut <= a_fade_start:
+        raise ValueError(
+            f"Transition #{transition_index} {kind} override requires a_cut_sec > a_fade_start_sec. "
+            f"Got {a_cut} <= {a_fade_start}."
+        )
     if a_fade_start < 0:
         raise ValueError(
             f"Transition #{transition_index} {kind} override a_fade_start_sec must be >= 0. Got {a_fade_start}."
@@ -193,6 +200,13 @@ def _validate_override_source_bounds(
         raise ValueError(
             f"Transition #{transition_index} {kind} override b_cue_sec is beyond the end of Track B "
             f"({track_b.duration_sec:.3f}s). Got {b_cue}."
+        )
+
+
+def _require_between(transition_index: int, key: str, value: float, lo: float, hi: float) -> None:
+    if not lo <= value <= hi:
+        raise ValueError(
+            f"Transition #{transition_index} handoff override {key} must be between {lo} and {hi}. Got {value}."
         )
 
 
@@ -286,11 +300,6 @@ def apply_manual_transition_override(
 
     if overlap <= 0:
         raise ValueError(f"Transition #{transition_index} manual override overlap_sec must be > 0. Got {overlap}.")
-    if a_cut <= a_fade_start:
-        raise ValueError(
-            f"Transition #{transition_index} manual override requires a_cut_sec > a_fade_start_sec. "
-            f"Got {a_cut} <= {a_fade_start}."
-        )
     _validate_override_source_bounds("manual", transition_index, a_fade_start, a_cut, b_cue, track_a, track_b)
 
     rescored = score_candidate(track_a, track_b, a_cut, b_cue, overlap, "candidate")
@@ -316,22 +325,15 @@ def apply_manual_transition_override(
             "this is allowed but may not be a standard crossfade shape"
         )
 
-    return TransitionCandidate(
+    return replace(
+        rescored,
         name=str(item.get("name") or item.get("mode") or "manual"),
-        score=rescored.score,
         a_fade_start_sec=a_fade_start,
         a_cut_sec=a_cut,
         b_cue_sec=b_cue,
         overlap_sec=overlap,
         b_gain_db=b_gain,
         trim_a_tail_sec=trim_a_tail_sec,
-        vocal_collision_score=rescored.vocal_collision_score,
-        beat_alignment_score=rescored.beat_alignment_score,
-        energy_score=rescored.energy_score,
-        placement_score=rescored.placement_score,
-        loudness_score=rescored.loudness_score,
-        perceptual_loudness_score=rescored.perceptual_loudness_score,
-        compatibility_score=rescored.compatibility_score,
         notes=notes,
         soft_duck_db=soft_duck_db,
         soft_duck_target=soft_duck_target,
@@ -359,32 +361,15 @@ def apply_handoff_transition_override(
     b_entry_gain = coerce_float_override(item, "b_entry_gain_db", base.b_gain_db)
     b_fade_in = coerce_float_override(item, "b_fade_in_sec", max(takeover_overlap, base.overlap_sec))
 
-    if a_cut <= a_fade_start:
-        raise ValueError(
-            f"Transition #{transition_index} handoff override requires a_cut_sec > a_fade_start_sec. "
-            f"Got {a_cut} <= {a_fade_start}."
-        )
     _validate_override_source_bounds("handoff", transition_index, a_fade_start, a_cut, b_cue, track_a, track_b)
-    if not 0.05 <= takeover_overlap <= 1.0:
-        raise ValueError(
-            f"Transition #{transition_index} handoff override takeover_overlap_sec must be between 0.05 and 1.0. "
-            f"Got {takeover_overlap}."
-        )
-    if not 0.1 <= b_fade_in <= 4.0:
-        raise ValueError(
-            f"Transition #{transition_index} handoff override b_fade_in_sec must be between 0.1 and 4.0. "
-            f"Got {b_fade_in}."
-        )
+    _require_between(transition_index, "takeover_overlap_sec", takeover_overlap, 0.05, 1.0)
+    _require_between(transition_index, "b_fade_in_sec", b_fade_in, 0.1, 4.0)
     if b_fade_in < takeover_overlap:
         raise ValueError(
             f"Transition #{transition_index} handoff override requires b_fade_in_sec >= takeover_overlap_sec. "
             f"Got {b_fade_in} < {takeover_overlap}."
         )
-    if not -6.0 <= b_entry_gain <= 3.0:
-        raise ValueError(
-            f"Transition #{transition_index} handoff override b_entry_gain_db must be between -6.0 and 3.0. "
-            f"Got {b_entry_gain}."
-        )
+    _require_between(transition_index, "b_entry_gain_db", b_entry_gain, -6.0, 3.0)
 
     rescored = score_candidate(track_a, track_b, a_cut, b_cue, takeover_overlap, "candidate")
     trim_a_tail_sec = max(0.0, track_a.duration_sec - a_cut)
@@ -399,22 +384,15 @@ def apply_handoff_transition_override(
         f"handoff b_fade_in_sec={b_fade_in:.3f}",
     ]
 
-    return TransitionCandidate(
+    return replace(
+        rescored,
         name="handoff",
-        score=rescored.score,
         a_fade_start_sec=a_fade_start,
         a_cut_sec=a_cut,
         b_cue_sec=b_cue,
         overlap_sec=takeover_overlap,
         b_gain_db=b_entry_gain,
         trim_a_tail_sec=trim_a_tail_sec,
-        vocal_collision_score=rescored.vocal_collision_score,
-        beat_alignment_score=rescored.beat_alignment_score,
-        energy_score=rescored.energy_score,
-        placement_score=rescored.placement_score,
-        loudness_score=rescored.loudness_score,
-        perceptual_loudness_score=rescored.perceptual_loudness_score,
-        compatibility_score=rescored.compatibility_score,
         notes=notes,
         takeover_overlap_sec=takeover_overlap,
         b_fade_in_sec=b_fade_in,
@@ -432,6 +410,47 @@ def candidate_b_start_offset_sec(cand: SetlistTransition) -> float:
     return cand.a_fade_start_sec
 
 
+def _note_if_lossy(path: Path) -> None:
+    note = lossy_input_note(path)
+    if note:
+        print(note, file=sys.stderr)
+
+
+def _analyze_junction(
+    a_path: str,
+    b_path: str,
+    *,
+    a_bpm: Optional[float],
+    b_bpm: Optional[float],
+    a_key: Optional[str],
+    b_key: Optional[str],
+    search_a_sec: float,
+    search_b_sec: float,
+    vocal_method: str,
+    prefer_mps: bool,
+) -> tuple[AudioAnalysis, AudioAnalysis]:
+    """Analyze the outgoing outro and the incoming intro with shared vocal settings."""
+    a_analysis = analyze_audio(
+        a_path,
+        role="a",
+        window_sec=search_a_sec,
+        manual_bpm=a_bpm,
+        manual_key=a_key,
+        vocal_method=vocal_method,
+        prefer_mps=prefer_mps,
+    )
+    b_analysis = analyze_audio(
+        b_path,
+        role="b",
+        window_sec=search_b_sec,
+        manual_bpm=b_bpm,
+        manual_key=b_key,
+        vocal_method=vocal_method,
+        prefer_mps=prefer_mps,
+    )
+    return a_analysis, b_analysis
+
+
 def validate_setlist_formats(tracks: Sequence[TrackSpec]) -> tuple[List[Dict[str, object]], List[AudioSegment]]:
     """Validate all inputs and load decoded segments before expensive analysis."""
     infos: List[Dict[str, object]] = []
@@ -441,19 +460,15 @@ def validate_setlist_formats(tracks: Sequence[TrackSpec]) -> tuple[List[Dict[str
 
     for idx, spec in enumerate(tracks, start=1):
         p = validate_audio_input(spec.path, f"Track {idx}")
-        note = lossy_input_note(p)
-        if note:
-            print(note, file=sys.stderr)
+        _note_if_lossy(p)
         info = audio_info(p)
         if first_info is None:
             first_info = info
         else:
-            fields = compatibility_fields(first_info, info)
-            mismatches = [(f, first_info[f], info[f]) for f in fields if first_info[f] != info[f]]
-            if mismatches:
-                details = "\n".join(
-                    f"  - {field}: first={a_val}, track {idx}={b_val}" for field, a_val, b_val in mismatches
-                )
+            details = format_mismatches(
+                first_info, info, compatibility_fields(first_info, info), "first", f"track {idx}"
+            )
+            if details:
                 raise ValueError(
                     "All setlist audio formats must match. Refusing to chain tracks rather than silently resampling.\n"
                     + details
@@ -468,6 +483,28 @@ def validate_setlist_formats(tracks: Sequence[TrackSpec]) -> tuple[List[Dict[str
         segments.append(seg)
 
     return infos, segments
+
+
+def _select_with_override(
+    candidates: List[TransitionCandidate],
+    override_item: dict[str, object] | None,
+    override_mode: Optional[str],
+    transition_mode: str,
+    transition_index: int,
+    track_a: AudioAnalysis,
+    track_b: AudioAnalysis,
+) -> TransitionCandidate:
+    """Pick the base candidate for a junction, then apply any manifest override to it."""
+    # Manual and handoff overrides tune the recommended candidate rather than a named one.
+    base_mode = "recommended" if override_mode in ("manual", "handoff") else override_mode or transition_mode
+    selected = select_candidate(candidates, base_mode, transition_index)
+    if override_item and override_mode == "handoff":
+        return apply_handoff_transition_override(selected, override_item, transition_index, track_a, track_b)
+    if override_item and (
+        override_mode == "manual" or any(override_item.get(k) is not None for k in MANUAL_OVERRIDE_KEYS)
+    ):
+        return apply_manual_transition_override(selected, override_item, transition_index, track_a, track_b)
+    return selected
 
 
 def plan_setlist_mix(
@@ -501,55 +538,39 @@ def plan_setlist_mix(
     for i in range(len(tracks) - 1):
         a_spec, b_spec = tracks[i], tracks[i + 1]
         override_item = transition_override(settings, i + 1, a_spec.title, b_spec.title)
-        override_mode = None
-        if override_item:
-            override_mode = _override_mode(override_item)
-        selection_mode = override_mode or transition_mode
-        if selection_mode == "natural":
+        override_mode = _override_mode(override_item) if override_item else None
+        if (override_mode or transition_mode) == "natural":
             pause_sec = natural_pause_sec
             if override_item:
                 pause_sec = coerce_float_override(override_item, "pause_sec", natural_pause_sec)
             selected = build_natural_transition(len(segments[i]) / 1000.0, pause_sec, i + 1)
-            a_analysis = None
-            b_analysis = None
+            a_analysis = b_analysis = None
             candidates: List[TransitionCandidate] = []
             ranked: list[dict[str, object]] = []
         else:
-            a_analysis = analyze_audio(
+            a_analysis, b_analysis = _analyze_junction(
                 a_spec.path,
-                role="a",
-                window_sec=effective_search_a_sec,
-                manual_bpm=a_spec.bpm,
-                manual_key=a_spec.key,
-                vocal_method=vocal_method,
-                prefer_mps=prefer_mps,
-            )
-            b_analysis = analyze_audio(
                 b_spec.path,
-                role="b",
-                window_sec=effective_search_b_sec,
-                manual_bpm=b_spec.bpm,
-                manual_key=b_spec.key,
+                a_bpm=a_spec.bpm,
+                b_bpm=b_spec.bpm,
+                a_key=a_spec.key,
+                b_key=b_spec.key,
+                search_a_sec=effective_search_a_sec,
+                search_b_sec=effective_search_b_sec,
                 vocal_method=vocal_method,
                 prefer_mps=prefer_mps,
             )
             candidates = choose_candidates(
                 a_analysis, b_analysis, max_trim_a_sec, b_cue_max_sec, scoring_profile=scoring_profile
             )
-            base_selection_mode = "recommended" if override_mode in ("manual", "handoff") else selection_mode
-            selected = select_candidate(candidates, base_selection_mode, i + 1)
-            if override_item and override_mode == "handoff":
-                selected = apply_handoff_transition_override(selected, override_item, i + 1, a_analysis, b_analysis)
-            elif override_item and (
-                override_mode == "manual"
-                or any(override_item.get(k) is not None for k in MANUAL_OVERRIDE_KEYS)
-            ):
-                selected = apply_manual_transition_override(selected, override_item, i + 1, a_analysis, b_analysis)
+            selected = _select_with_override(
+                candidates, override_item, override_mode, transition_mode, i + 1, a_analysis, b_analysis
+            )
             ranked = ranked_candidate_summary(candidates)
 
         current_a_zero = source_zero_in_mix_sec[i]
         mix_transition_start_sec = current_a_zero + selected.a_fade_start_sec
-        mix_transition_start_ms = int(round(mix_transition_start_sec * 1000))
+        mix_transition_start_ms = sec_to_ms(mix_transition_start_sec)
         if mix_transition_start_ms < 0 or mix_transition_start_ms > mix_len_ms:
             raise ValueError(
                 f"Transition #{i+1} maps outside the assembled mix: {mix_transition_start_sec:.3f}s. "
@@ -582,7 +603,7 @@ def plan_setlist_mix(
                 next_track_source_zero_in_mix_sec=round(next_zero, 3),
             )
         )
-        mix_len_ms = int(round(next_zero * 1000)) + len(segments[i + 1])
+        mix_len_ms = sec_to_ms(next_zero) + len(segments[i + 1])
 
     return SetlistMixPlan(
         tracks=list(tracks),
@@ -618,10 +639,8 @@ def plan_two_track_mix(
     """Analyze both tracks, score candidates, and return a render-ready plan."""
     track_a_path = validate_audio_input(track_a, "Track A")
     track_b_path = validate_audio_input(track_b, "Track B")
-    for p in (track_a_path, track_b_path):
-        note = lossy_input_note(p)
-        if note:
-            print(note, file=sys.stderr)
+    _note_if_lossy(track_a_path)
+    _note_if_lossy(track_b_path)
     a_wav_info, b_wav_info = validate_audio_pair_compatibility(track_a_path, track_b_path)
 
     scoring_profile = load_scoring_profile(profile, scoring_config) if mode == "profile" else None
@@ -633,21 +652,15 @@ def plan_two_track_mix(
     seg_b = load_audio_segment(track_b_path)
     validate_loaded_segment_parity(seg_a, seg_b)
 
-    a_analysis = analyze_audio(
+    a_analysis, b_analysis = _analyze_junction(
         str(track_a_path),
-        role="a",
-        window_sec=effective_search_a_sec,
-        manual_bpm=a_bpm,
-        manual_key=a_key,
-        vocal_method=vocal_method,
-        prefer_mps=prefer_mps,
-    )
-    b_analysis = analyze_audio(
         str(track_b_path),
-        role="b",
-        window_sec=effective_search_b_sec,
-        manual_bpm=b_bpm,
-        manual_key=b_key,
+        a_bpm=a_bpm,
+        b_bpm=b_bpm,
+        a_key=a_key,
+        b_key=b_key,
+        search_a_sec=effective_search_a_sec,
+        search_b_sec=effective_search_b_sec,
         vocal_method=vocal_method,
         prefer_mps=prefer_mps,
     )

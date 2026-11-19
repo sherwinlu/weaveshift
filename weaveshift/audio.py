@@ -12,7 +12,7 @@ import sys
 import warnings
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, Iterator, List, Optional, Sequence, Tuple, Union
+from typing import Dict, Iterator, List, Mapping, Optional, Sequence, Tuple, Union
 
 import numpy as np
 import soundfile as sf
@@ -205,14 +205,21 @@ def compatibility_fields(a_info: Dict[str, object], b_info: Dict[str, object]) -
     return tuple(fields)
 
 
+def format_mismatches(
+    a: Mapping[str, object], b: Mapping[str, object], fields: Sequence[str], a_label: str, b_label: str
+) -> str:
+    """Bullet list of the fields on which two format descriptions differ ('' when they agree)."""
+    return "\n".join(
+        f"  - {field}: {a_label}={a[field]}, {b_label}={b[field]}" for field in fields if a[field] != b[field]
+    )
+
+
 def validate_audio_pair_compatibility(track_a: Path, track_b: Path) -> Tuple[Dict[str, object], Dict[str, object]]:
     """Require A/B format parity so pydub does not silently resample/reconcile masters."""
     a_info = audio_info(track_a)
     b_info = audio_info(track_b)
-    fields = compatibility_fields(a_info, b_info)
-    mismatches = [(f, a_info[f], b_info[f]) for f in fields if a_info[f] != b_info[f]]
-    if mismatches:
-        details = "\n".join(f"  - {field}: Track A={a_val}, Track B={b_val}" for field, a_val, b_val in mismatches)
+    details = format_mismatches(a_info, b_info, compatibility_fields(a_info, b_info), "Track A", "Track B")
+    if details:
         raise ValueError(
             "Track A and Track B audio formats do not match. Refusing to mix rather than letting "
             "pydub/ffmpeg silently resample or change bit depth.\n"
@@ -295,13 +302,11 @@ def validate_loaded_segment_parity(seg_a: AudioSegment, seg_b: AudioSegment) -> 
     Decoded sample width is intentionally not compared: MP3 and WAV masters that share
     sample rate and channels can still decode to different internal bit depths.
     """
-    mismatches = []
-    if seg_a.frame_rate != seg_b.frame_rate:
-        mismatches.append(("frame_rate", seg_a.frame_rate, seg_b.frame_rate))
-    if seg_a.channels != seg_b.channels:
-        mismatches.append(("channels", seg_a.channels, seg_b.channels))
-    if mismatches:
-        details = "\n".join(f"  - {field}: Track A={a_val}, Track B={b_val}" for field, a_val, b_val in mismatches)
+    fields = ("frame_rate", "channels")
+    details = format_mismatches(
+        {f: getattr(seg_a, f) for f in fields}, {f: getattr(seg_b, f) for f in fields}, fields, "Track A", "Track B"
+    )
+    if details:
         raise ValueError(
             "Decoded AudioSegment formats do not match after loading. Refusing to render.\n" + details
         )
@@ -447,19 +452,13 @@ def stereo_dbfs_from_samples(y: np.ndarray) -> Tuple[float, float]:
     return 20 * math.log10(max(rms, 1e-9)), 20 * math.log10(max(peak, 1e-9))
 
 
-def dbfs_from_samples(y: np.ndarray) -> Tuple[float, float]:
-    """Alias for stereo_dbfs_from_samples."""
-    return stereo_dbfs_from_samples(y)
-
-
-def pydub_rms_dbfs(seg: AudioSegment) -> float:
-    if len(seg) <= 0 or seg.rms == 0:
-        return -120.0
-    return float(seg.dBFS)
-
-
 def clamp(x: float, lo: float, hi: float) -> float:
     return max(lo, min(hi, x))
+
+
+def sec_to_ms(sec: float) -> int:
+    """Convert seconds to milliseconds using round-half-up for splice/render parity."""
+    return int(round(float(sec) * 1000.0))
 
 
 def format_timestamp(seconds: float) -> str:

@@ -1,7 +1,7 @@
 import numpy as np
 
 from weaveshift.audio import AudioAnalysis, VocalSegment
-from weaveshift.rendering import build_transition_audio, render_candidate, render_transition_tail
+from weaveshift.rendering import build_transition_audio, render_candidate
 from weaveshift.reports import (
     build_two_track_report,
     validate_report_schema,
@@ -255,8 +255,6 @@ def test_build_transition_audio_matches_tail_and_full(tmp_path):
     )
 
     built = build_transition_audio(seg_a, seg_b, cand)
-    tail = render_transition_tail(seg_a, seg_b, cand)
-    assert len(tail) == len(built.body)
     assert len(built.full) == len(built.prefix) + len(built.body)
 
     out = tmp_path / "out.wav"
