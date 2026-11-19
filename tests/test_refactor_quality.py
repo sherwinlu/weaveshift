@@ -1,14 +1,13 @@
 import numpy as np
 
-from weaveshift.audio import AudioAnalysis, VocalSegment
+from weaveshift.audio import AudioAnalysis, TransitionCandidate, VocalSegment
 from weaveshift.rendering import build_transition_audio, render_candidate
 from weaveshift.reports import (
     build_two_track_report,
+    ranked_candidate_summary,
     validate_report_schema,
 )
 from weaveshift.scoring import TechnicalScoringConfig, score_candidate
-from weaveshift.audio import TransitionCandidate
-from weaveshift.reports import ranked_candidate_summary
 
 
 def analysis(role: str, *, duration=30.0, beats=None, vocals=None, bpm=128.0, camelot="12B", energy_db=-14.0):

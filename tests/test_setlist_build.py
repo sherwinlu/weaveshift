@@ -1,4 +1,3 @@
-from tests.cli_helpers import setlist_args
 import json
 
 import numpy as np
@@ -7,6 +6,7 @@ import soundfile as sf
 import weaveshift.plan as weaveshift_plan
 import weaveshift.setlist as weaveshift_setlist
 from weaveshift.audio import AudioAnalysis, TransitionCandidate
+from tests.cli_helpers import setlist_args
 
 
 def write_wav(path, duration=4.0, sr=48000, freq=440.0):

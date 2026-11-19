@@ -116,7 +116,9 @@ def coerce_manifest_setting(key: str, value: object, kind: type) -> object:
     return value
 
 
-def apply_manifest_settings(args, manifest_settings: dict[str, object], parser: argparse.ArgumentParser) -> None:
+def apply_manifest_settings(
+    args: argparse.Namespace, manifest_settings: dict[str, object], parser: argparse.ArgumentParser
+) -> None:
     """Copy allowlisted manifest settings onto CLI defaults.
 
     Explicit CLI values always win over the manifest. `transition_overrides`
@@ -213,7 +215,7 @@ def load_setlist(path: str, allow_outside: bool = False) -> Tuple[List[TrackSpec
     return tracks, settings
 
 
-def build_continuous_mix(args) -> None:
+def build_continuous_mix(args: argparse.Namespace) -> None:
     tracks, manifest_settings = load_setlist(args.setlist, allow_outside=args.allow_outside_manifest_dir)
     if args.apply_manifest_settings:
         apply_manifest_settings(args, manifest_settings, build_parser())

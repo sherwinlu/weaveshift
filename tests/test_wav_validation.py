@@ -147,7 +147,8 @@ def test_two_track_cli_short_track_fails_clearly_and_creates_no_false_success(tm
 
 
 def test_heuristic_vocal_length_guard_uses_sample_count_not_channel_count(monkeypatch):
-    from weaveshift.audio import librosa, vocal_segments_heuristic
+    import librosa
+    from weaveshift.audio import vocal_segments_heuristic
 
     called = {"hpss": False}
 

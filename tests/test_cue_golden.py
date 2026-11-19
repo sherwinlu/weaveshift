@@ -1,4 +1,3 @@
-
 import pytest
 
 from weaveshift.cues import analyze_track

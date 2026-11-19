@@ -2,6 +2,18 @@
 
 All notable changes to WeaveShift will be documented in this file.
 
+## Unreleased
+
+### Fixed
+
+- `weaveshift-cues` BPM detection now calls `librosa.feature.tempo` instead of `librosa.feature.rhythm.tempo`, which previously failed silently when `librosa.feature.rhythm` had not already been imported.
+- `weaveshift-cues` manifest validation errors now raise `ValueError` instead of `SystemExit`, returning exit code `1` consistently through the shared CLI runner.
+
+### Changed
+
+- Consolidated shared CLI plumbing in `weaveshift._cli`, shared planner defaults and helpers in `weaveshift.plan`, shared DSP/validation helpers in `weaveshift.audio`, and generated cue CSV columns in `weaveshift.cues`.
+- Trimmed unused top-level/facade Python re-exports (`weaveshift/__init__.py`, `weaveshift.two_tracks`) and deprecated compatibility shims (`validate_wav_*`, `render_transition_tail`, `apply_gain_ramp(..., step_ms=...)`, `TechnicalScoringConfig.version`, split report schema-version constants). CLI interfaces and JSON report schemas are unchanged.
+
 ## 1.0.0 - 2026-11-18
 
 Initial release.

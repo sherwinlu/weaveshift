@@ -208,7 +208,7 @@ def _validate_override_source_bounds(
         )
 
 
-def _require_between(transition_index: int, key: str, value: float, lo: float, hi: float) -> None:
+def _require_handoff_between(transition_index: int, key: str, value: float, lo: float, hi: float) -> None:
     if not lo <= value <= hi:
         raise ValueError(
             f"Transition #{transition_index} handoff override {key} must be between {lo} and {hi}. Got {value}."
@@ -367,14 +367,14 @@ def apply_handoff_transition_override(
     b_fade_in = coerce_float_override(item, "b_fade_in_sec", max(takeover_overlap, base.overlap_sec))
 
     _validate_override_source_bounds("handoff", transition_index, a_fade_start, a_cut, b_cue, track_a, track_b)
-    _require_between(transition_index, "takeover_overlap_sec", takeover_overlap, 0.05, 1.0)
-    _require_between(transition_index, "b_fade_in_sec", b_fade_in, 0.1, 4.0)
+    _require_handoff_between(transition_index, "takeover_overlap_sec", takeover_overlap, 0.05, 1.0)
+    _require_handoff_between(transition_index, "b_fade_in_sec", b_fade_in, 0.1, 4.0)
     if b_fade_in < takeover_overlap:
         raise ValueError(
             f"Transition #{transition_index} handoff override requires b_fade_in_sec >= takeover_overlap_sec. "
             f"Got {b_fade_in} < {takeover_overlap}."
         )
-    _require_between(transition_index, "b_entry_gain_db", b_entry_gain, -6.0, 3.0)
+    _require_handoff_between(transition_index, "b_entry_gain_db", b_entry_gain, -6.0, 3.0)
 
     rescored = score_candidate(track_a, track_b, a_cut, b_cue, takeover_overlap, "candidate")
     trim_a_tail_sec = max(0.0, track_a.duration_sec - a_cut)

@@ -739,7 +739,7 @@ weaveshift/
     plan.py                   # plan/execute separation
     profiles.py               # TOML scoring profiles
     rendering.py              # transition rendering
-    reports.py                # JSON/CSV report builders
+    reports.py                # JSON report builders
     scoring.py                # candidate search and scoring
     setlist.py                # setlist CLI orchestration
     two_tracks.py             # two-track CLI orchestration

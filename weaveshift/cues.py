@@ -16,18 +16,18 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Tuple
 
+import librosa
 import numpy as np
 
 from weaveshift._cli import run_cli
 from weaveshift._paths import expand_user, is_within
 from weaveshift.audio import (
     frame_times,
-    suppress_audio_warnings,
-    librosa,
     load_mono_analysis_audio,
     lossy_input_note,
     resample_for_analysis,
     safe_float,
+    suppress_audio_warnings,
     validate_audio_input,
 )
 
@@ -146,7 +146,7 @@ def _track_from_row(row: Dict[str, str], missing_path_message: str) -> Track:
     """Build a Track from a CSV row or stringified JSON object, accepting common column aliases."""
     audio_path = get_first(row, ["path", "file", "filepath", "audio_path", "track_path"])
     if not audio_path:
-        raise SystemExit(missing_path_message)
+        raise ValueError(missing_path_message)
     return Track(
         path=audio_path,
         title=get_first(row, ["title", "track", "name", "track_title"]) or Path(audio_path).stem,
@@ -167,7 +167,7 @@ def read_tracks(path: Path) -> List[Track]:
     data = json.loads(path.read_text(encoding="utf-8"))
     tracks_raw = data.get("tracks") if isinstance(data, dict) else data
     if not isinstance(tracks_raw, list) or not tracks_raw:
-        raise SystemExit("JSON manifest must contain a non-empty 'tracks' list.")
+        raise ValueError("JSON manifest must contain a non-empty 'tracks' list.")
     tracks: List[Track] = []
     for item in tracks_raw:
         if isinstance(item, str):
@@ -176,7 +176,7 @@ def read_tracks(path: Path) -> List[Track]:
             str_row = {str(k): "" if v is None else str(v) for k, v in item.items()}
             tracks.append(_track_from_row(str_row, "Track manifest entry is missing a path/file field."))
         else:
-            raise SystemExit("Each JSON track entry must be a string or an object.")
+            raise ValueError("Each JSON track entry must be a string or an object.")
     return tracks
 
 

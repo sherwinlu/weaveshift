@@ -108,6 +108,7 @@ def test_choose_candidates_returns_distinct_named_and_profile_options():
 
     assert {"vocal_safe", "beat_aligned", "quick_cut", "smooth", "profile"} <= names
     assert len({(c.a_fade_start_sec, c.b_cue_sec, c.overlap_sec) for c in selected}) == len(selected)
+    assert len({id(c.notes) for c in selected}) == len(selected)
 
 
 def test_vocal_overlap_can_produce_ducked_candidate():

@@ -433,7 +433,8 @@ def choose_candidates(
         """Select the first pooled candidate that is not a near-duplicate of one already chosen."""
         for c in pool:
             if not candidate_too_close(c, selected):
-                selected.append(replace(tweak(c), name=label))
+                chosen = tweak(c)
+                selected.append(replace(chosen, name=label, notes=list(chosen.notes)))
                 return
 
     def with_note(c: TransitionCandidate, note: str, **changes) -> TransitionCandidate:

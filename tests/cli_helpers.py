@@ -5,6 +5,12 @@ from weaveshift import setlist as weaveshift_setlist
 
 
 def setlist_args(setlist, output, **overrides) -> Namespace:
+    """Build setlist CLI args from the real parser with narrowed windows for fast tests.
+
+    Note: ``search_a_sec``, ``search_b_sec``, ``max_trim_a_sec``, and ``b_cue_max_sec`` are
+    deliberately set below parser defaults, so ``apply_manifest_settings`` treats them as
+    CLI-specified unless overridden back to ``None`` or their parser defaults.
+    """
     args = weaveshift_setlist.build_parser().parse_args([str(setlist), "-o", str(output)])
     args.no_mps = True
     args.search_a_sec = args.search_b_sec = 1.0

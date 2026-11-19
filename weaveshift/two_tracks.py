@@ -28,7 +28,7 @@ TWO_TRACK_REPORT_SUFFIX = ".weaveshift_mix_report.json"
 TWO_TRACK_MODES = ("all", *CANDIDATE_MODES)
 
 
-def run(args) -> None:
+def run(args: argparse.Namespace) -> None:
     _, base, fmt_suffix = resolve_output(args.output)
     warn_unused_profile(args, args.mode, "--mode")
     warn_if_vocals_skipped(args.vocal_method)

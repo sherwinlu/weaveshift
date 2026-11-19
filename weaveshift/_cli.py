@@ -36,20 +36,43 @@ def add_planning_arguments(parser: argparse.ArgumentParser, *, vocal_default: st
     parser.add_argument(
         "--profile",
         default="edm",
-        help=f"Built-in scoring profile used with the 'profile' mode: {', '.join(BUILTIN_PROFILES)}",
+        help=f"Built-in scoring profile used with the 'profile' mode (default: edm): {', '.join(BUILTIN_PROFILES)}",
     )
     parser.add_argument("--scoring-config", default=None, help="Path to a TOML scoring profile; overrides --profile")
     parser.add_argument(
         "--vocal-method",
         choices=list(VOCAL_METHODS),
         default=vocal_default,
-        help="Vocal analysis method ('auto' tries Demucs then heuristic; 'none' skips vocal detection)",
+        help=(
+            "Vocal analysis method ('auto' tries Demucs then heuristic; 'none' skips vocal detection; "
+            f"default: {vocal_default})"
+        ),
     )
     parser.add_argument("--no-mps", action="store_true", help="Do not try Apple Silicon MPS for Demucs")
-    parser.add_argument("--search-a-sec", type=float, default=DEFAULT_SEARCH_SEC, help="Seconds of the outgoing track's outro to analyze")
-    parser.add_argument("--search-b-sec", type=float, default=DEFAULT_SEARCH_SEC, help="Seconds of the incoming track's intro to analyze")
-    parser.add_argument("--max-trim-a-sec", type=float, default=DEFAULT_MAX_TRIM_A_SEC, help="Maximum seconds allowed to trim from the outgoing tail")
-    parser.add_argument("--b-cue-max-sec", type=float, default=DEFAULT_B_CUE_MAX_SEC, help="Latest allowed cue point in the incoming intro")
+    parser.add_argument(
+        "--search-a-sec",
+        type=float,
+        default=DEFAULT_SEARCH_SEC,
+        help=f"Seconds of the outgoing track's outro to analyze (default: {DEFAULT_SEARCH_SEC:g})",
+    )
+    parser.add_argument(
+        "--search-b-sec",
+        type=float,
+        default=DEFAULT_SEARCH_SEC,
+        help=f"Seconds of the incoming track's intro to analyze (default: {DEFAULT_SEARCH_SEC:g})",
+    )
+    parser.add_argument(
+        "--max-trim-a-sec",
+        type=float,
+        default=DEFAULT_MAX_TRIM_A_SEC,
+        help=f"Maximum seconds allowed to trim from the outgoing tail (default: {DEFAULT_MAX_TRIM_A_SEC:g})",
+    )
+    parser.add_argument(
+        "--b-cue-max-sec",
+        type=float,
+        default=DEFAULT_B_CUE_MAX_SEC,
+        help=f"Latest allowed cue point in the incoming intro (default: {DEFAULT_B_CUE_MAX_SEC:g})",
+    )
 
 
 def resolve_output(raw: str) -> tuple[Path, Path, str]:
@@ -85,8 +108,9 @@ def report_widened_windows(args: argparse.Namespace, plan: TwoTrackMixPlan | Set
         ("A", args.search_a_sec, plan.effective_search_a_sec),
         ("B", args.search_b_sec, plan.effective_search_b_sec),
     ):
-        if effective > float(requested):
-            print(f"Note: widened Track {label} analysis window from {requested:.1f}s to {effective:.1f}s.")
+        req = float(requested)
+        if effective > req:
+            print(f"Note: widened Track {label} analysis window from {req:.1f}s to {effective:.1f}s.")
 
 
 def run_cli(
