@@ -21,10 +21,11 @@ Optional Demucs support:
 python -m pip install -e ".[demucs]"
 ```
 
-## Running tests
+## Running tests and type checks
 
 ```bash
 python -m pytest
+basedpyright
 ```
 
 ## Pull requests
@@ -32,8 +33,8 @@ python -m pytest
 1. Open an issue or comment on an existing one before large changes.
 2. Keep diffs focused on one concern.
 3. Add or update tests when behavior changes.
-4. Run `python -m pytest` locally before opening a PR.
-5. Update `README.md` or `CHANGELOG.md` when user-facing behavior changes.
+4. Run `python -m pytest` and `basedpyright` locally before opening a PR.
+5. Update `README.md`, `docs/`, or `CHANGELOG.md` when user-facing behavior changes.
 
 ## Coding style
 
