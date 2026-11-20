@@ -1,6 +1,6 @@
 # Installation
 
-WeaveShift is a command-line Python project.
+WeaveShift is a command-line Python project. Prefer not to install Python or FFmpeg on your host? See [Docker Usage](docker.md) to run WeaveShift in a container.
 
 ## Requirements
 

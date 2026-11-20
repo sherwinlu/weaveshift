@@ -21,7 +21,7 @@ The same engine can be tuned for EDM/workout mixes, vocal trance, lounge/backgro
 
 ## Quick start
 
-Requires Python 3.11+ and `ffmpeg` on `PATH` (see [Installation](docs/installation.md) for OS-specific steps and optional Demucs setup).
+Requires Python 3.11+ and `ffmpeg` on `PATH` (see [Installation](docs/installation.md) for OS-specific steps and optional Demucs setup, or [Docker Usage](docs/docker.md) to run in a container without installing Python or FFmpeg locally).
 
 ```bash
 git clone https://github.com/sherwinlu/weaveshift.git
@@ -67,6 +67,7 @@ Use `--vocal-method heuristic` for fast drafting (default for setlist mode) and 
 | Guide | Covers |
 | --- | --- |
 | [Installation](docs/installation.md) | macOS, Windows, Ubuntu/Debian, Fedora setup, optional Demucs, editable install & CLI entry points |
+| [Docker Usage](docs/docker.md) | Building and running the lean or Demucs container images, bind mounts, Linux UID/GID, GPU caveats |
 | [Manifests, CLI Usage & Audio Policy](docs/manifests-and-audio.md) | Setlist/two-track/cues commands, transition modes, manifest format, track path security rules, WAV/MP3 policy |
 | [Scoring Profiles](docs/profiles.md) | All 8 built-in profiles, profile selection guide, custom TOML schema, `--scoring-config` |
 | [Per-Transition Overrides](docs/overrides.md) | `--apply-manifest-settings` allowlist, candidate, `natural`, `manual`, and `handoff` overrides |
@@ -101,9 +102,11 @@ weaveshift/
   requirements-demucs.txt
   requirements-test.txt
   pyproject.toml
+  Dockerfile
+  .dockerignore
   .gitignore
 
-  docs/                       # detailed installation, profile, override, and manifest guides
+  docs/                       # detailed installation, Docker, profile, override, and manifest guides
   weaveshift/                 # core Python package
     __init__.py
     _cli.py                   # arguments and process plumbing shared by the CLIs
