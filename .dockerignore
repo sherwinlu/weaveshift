@@ -1,0 +1,38 @@
+# VCS and CI
+.git
+.github
+.gitignore
+
+# Python caches and local virtualenvs
+**/__pycache__
+**/*.py[cod]
+.venv
+venv
+.env
+.pytest_cache
+.mypy_cache
+.coverage
+*.egg-info
+.python-version
+
+# Local audio, caches, outputs, and editor files
+**/*.wav
+**/*.wave
+**/*.mp3
+**/*.aiff
+**/*.aif
+**/*.flac
+**/*.m4a
+**/*.aac
+output
+.weaveshift_demucs_cache
+**/.DS_Store
+.idea
+.vscode
+dump.rdb
+v1.1.0releasenotes.md
+
+# Not needed to build/install the weaveshift package (keep README.md for pyproject metadata)
+docs
+examples
+tests
