@@ -99,6 +99,8 @@ def timestamp_to_sec(ts: str) -> Optional[float]:
         parts_f = [float(p) for p in parts]
     except ValueError:
         return None
+    if any(not math.isfinite(x) or x < 0 for x in parts_f):
+        return None
     if len(parts_f) == 2:
         m, s = parts_f
         return m * 60 + s
@@ -109,7 +111,7 @@ def timestamp_to_sec(ts: str) -> Optional[float]:
 
 
 def sec_to_timestamp(sec: Optional[float]) -> str:
-    if sec is None or math.isnan(sec):
+    if sec is None or not math.isfinite(sec):
         return ""
     sec = max(0.0, float(sec))
     total = int(round(sec))
@@ -184,9 +186,13 @@ def _read_json_timeline(path: Path) -> Dict[str, TimelineRow]:
     data = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(data, dict):
         return {}
-    tracks = data.get("tracks") or []
-    starts = data.get("track_source_zero_in_mix_sec") or []
-    transitions = data.get("transitions") or []
+    tracks = data.get("tracks")
+    starts = data.get("track_source_zero_in_mix_sec")
+    transitions = data.get("transitions")
+    if not isinstance(tracks, list):
+        return {}
+    starts_list = starts if isinstance(starts, list) else []
+    transitions_list = transitions if isinstance(transitions, list) else []
     out: Dict[str, TimelineRow] = {}
     for i, t in enumerate(tracks):
         if not isinstance(t, dict):
@@ -194,12 +200,12 @@ def _read_json_timeline(path: Path) -> Dict[str, TimelineRow]:
         title = str(t.get("title") or Path(str(t.get("path") or "")).stem)
         if not title:
             continue
-        start_sec = parse_float(starts[i]) if i < len(starts) else None
+        start_sec = parse_float(starts_list[i]) if i < len(starts_list) else None
         trans_out_sec = None
         overlap_sec = None
-        if i < len(transitions) and isinstance(transitions[i], dict):
-            trans_out_sec = parse_float(transitions[i].get("mix_transition_start_sec"))
-            overlap_sec = parse_float(transitions[i].get("overlap_sec"))
+        if i < len(transitions_list) and isinstance(transitions_list[i], dict):
+            trans_out_sec = parse_float(transitions_list[i].get("mix_transition_start_sec"))
+            overlap_sec = parse_float(transitions_list[i].get("overlap_sec"))
         out[normalize_title(title)] = TimelineRow(
             title=title,
             start_sec=start_sec,
@@ -286,6 +292,8 @@ def resolve_audio_path(
     paths must land inside the manifest directory or audio root. Pass ``allow_outside``
     to lift the restriction.
     """
+    if not audio_path or not audio_path.strip():
+        raise ValueError("Audio path must not be empty.")
     p = expand_user(audio_path)
     manifest_dir = manifest_path.parent
     shared_roots = [manifest_dir] + ([audio_root] if audio_root else [])
@@ -295,15 +303,16 @@ def resolve_audio_path(
     else:
         if audio_root:
             candidates.append((audio_root / p, [audio_root]))
-            candidates.append((audio_root / p.name, [audio_root]))
+            if ".." not in p.parts:
+                candidates.append((audio_root / p.name, [audio_root]))
         candidates.append((manifest_dir / p, [manifest_dir]))
 
     rejected: list[Path] = []
     for c, roots in candidates:
-        if not c.exists():
+        if not c.is_file():
             continue
         if allow_outside or is_within(c, roots):
-            return c
+            return c.resolve()
         rejected.append(c.resolve())
 
     if rejected:
@@ -331,7 +340,9 @@ def median_step_sec(times: np.ndarray, default: float = 0.5) -> float:
 
 
 def moving_average(x: np.ndarray, n: int) -> np.ndarray:
-    n = max(1, int(n))
+    if len(x) <= 1:
+        return x.astype(float)
+    n = min(len(x), max(1, int(n)))
     if n == 1:
         return x.astype(float)
     kernel = np.ones(n, dtype=float) / n
@@ -460,11 +471,12 @@ def analyze_track(audio_file: Path, bpm_hint: Optional[float]) -> Tuple[float, O
         onset_times = frame_times(len(onset_env), sr, hop_length)
         onset_smooth = moving_average(onset_env, max(3, int(round(2.0 / median_step_sec(onset_times)))))
 
-        onset_interp = np.interp(times, onset_times, onset_smooth)
+        onset_interp = np.interp(times, onset_times, onset_smooth) if len(onset_times) > 0 and len(times) > 0 else np.zeros_like(times)
 
         centroid = librosa.feature.spectral_centroid(y=y, sr=sr, hop_length=hop_length)[0]
-        centroid = np.interp(times, frame_times(len(centroid), sr, hop_length), centroid)
-        centroid_z = robust_z(moving_average(centroid, max(3, int(round(3.0 / frame_step)))))
+        centroid_times = frame_times(len(centroid), sr, hop_length)
+        centroid = np.interp(times, centroid_times, centroid) if len(centroid_times) > 0 and len(times) > 0 else np.zeros_like(times)
+        centroid_z = robust_z(moving_average(centroid, max(3, int(round(3.0 / frame_step))))) if len(centroid) > 0 else np.zeros_like(times)
 
     energy_z = robust_z(energy)
     onset_z = robust_z(onset_interp)
@@ -480,7 +492,7 @@ def analyze_track(audio_file: Path, bpm_hint: Optional[float]) -> Tuple[float, O
             )
         if len(tempo_raw):
             bpm_detected = float(tempo_raw[0])
-            if bpm_hint:
+            if bpm_hint and bpm_hint > 0:
                 candidates = [bpm_detected, bpm_detected * 2, bpm_detected / 2]
                 bpm_detected = min(candidates, key=lambda x: abs(x - bpm_hint))
     except Exception as exc:
@@ -582,13 +594,23 @@ def _timed(name: str, sec: Optional[float]) -> Dict[str, str]:
     return {f"{name}_sec": _fixed(sec), f"{name}_timestamp": sec_to_timestamp(sec)}
 
 
+_CSV_FORMULA_PREFIXES = ("=", "+", "-", "@", "\t", "\r")
+
+
+def _csv_safe(value: str) -> str:
+    """Prefix spreadsheet formula triggers so untrusted manifest text cannot execute in CSV viewers."""
+    if value and value[0] in _CSV_FORMULA_PREFIXES:
+        return "'" + value
+    return value
+
+
 def _cue_row(r: CueResult) -> Dict[str, str]:
     row = {
-        "title": r.title,
-        "path": r.path,
+        "title": _csv_safe(r.title),
+        "path": _csv_safe(r.path),
         "bpm_manifest": _fixed(r.bpm_manifest, 2),
         "bpm_detected": _fixed(r.bpm_detected, 2),
-        "key": r.key,
+        "key": _csv_safe(r.key),
         **_timed("duration", r.duration_sec),
         **_timed("final_start", r.final_start_sec),
     }
@@ -597,7 +619,11 @@ def _cue_row(r: CueResult) -> Dict[str, str]:
         row.update(_timed(f"{cue}_source", source_sec))
         row.update(_timed(f"{cue}_final", add_final_time(r.final_start_sec, source_sec)))
     row.update(_timed("transition_out", r.transition_out_sec))
-    row.update(visual_mood=r.visual_mood, confidence=r.confidence, notes=r.notes)
+    row.update(
+        visual_mood=_csv_safe(r.visual_mood),
+        confidence=r.confidence,
+        notes=_csv_safe(r.notes),
+    )
     return row
 
 
@@ -658,8 +684,15 @@ def main(argv: Optional[List[str]] = None) -> int:
 
 
 def run(args: argparse.Namespace) -> None:
-    tracks = read_tracks(args.manifest)
-    timeline = read_timeline(args.timeline)
+    manifest_path = expand_user(str(args.manifest))
+    timeline_path = expand_user(str(args.timeline)) if args.timeline is not None else None
+    audio_root = expand_user(str(args.audio_root)) if args.audio_root is not None else None
+    out_path = expand_user(str(args.out))
+    if out_path.is_dir():
+        raise ValueError(f"Output path is a directory, not a file: {out_path}")
+
+    tracks = read_tracks(manifest_path)
+    timeline = read_timeline(timeline_path)
 
     results: List[CueResult] = []
 
@@ -668,7 +701,7 @@ def run(args: argparse.Namespace) -> None:
 
         try:
             audio_file = resolve_audio_path(
-                track.path, args.manifest, args.audio_root, allow_outside=args.allow_outside_manifest_dir
+                track.path, manifest_path, audio_root, allow_outside=args.allow_outside_manifest_dir
             )
         except FileNotFoundError as exc:
             # Containment violations (ValueError) are deliberately not skippable.
@@ -712,10 +745,10 @@ def run(args: argparse.Namespace) -> None:
             )
         )
 
-    write_results(args.out, results)
+    write_results(out_path, results)
 
     print()
-    print(f"Wrote cue sheet: {args.out}")
+    print(f"Wrote cue sheet: {out_path}")
     print()
     print("Review tips:")
     print("- Treat main_peak as the first place to check for the drop/chorus.")

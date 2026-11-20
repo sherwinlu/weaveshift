@@ -22,6 +22,8 @@ import librosa
 import pyloudnorm as pyln
 from scipy.ndimage import maximum_filter1d
 
+from weaveshift._paths import expand_user, is_within
+
 
 logger = logging.getLogger(__name__)
 
@@ -76,12 +78,15 @@ class ProbedAudioMetadata:
 
 
 def _ffprobe_audio_metadata(path: Path) -> ProbedAudioMetadata:
+    resolved = path.resolve()
     try:
         proc = subprocess.run(
             [
                 "ffprobe",
                 "-v",
                 "error",
+                "-protocol_whitelist",
+                "file",
                 "-select_streams",
                 "a:0",
                 "-show_entries",
@@ -91,16 +96,19 @@ def _ffprobe_audio_metadata(path: Path) -> ProbedAudioMetadata:
                 "-of",
                 "json",
                 "--",
-                str(path),
+                str(resolved),
             ],
             capture_output=True,
             text=True,
             check=False,
+            timeout=30,
         )
     except FileNotFoundError as exc:
         raise RuntimeError(
             "ffprobe was not found on PATH. Install ffmpeg (which provides ffprobe) to use MP3 inputs."
         ) from exc
+    except subprocess.TimeoutExpired as exc:
+        raise RuntimeError(f"ffprobe timed out for {path.name}") from exc
     if proc.returncode != 0:
         raise RuntimeError(proc.stderr.strip() or f"ffprobe failed for {path.name}")
     payload = json.loads(proc.stdout or "{}")
@@ -130,13 +138,19 @@ def _validate_lossless_wav_input(p: Path, label: str) -> None:
             f"{label} WAV subtype is {info.subtype}, not one of {sorted(LOSSLESS_WAV_SUBTYPES)}.\n"
             "Export a standard PCM or float WAV master before mixing."
         )
+    if info.frames <= 0 or info.duration <= 0.0:
+        raise ValueError(f"{label} WAV has zero duration: {p.name}")
+    if info.samplerate <= 0 or info.channels <= 0:
+        raise ValueError(f"{label} WAV stream metadata is invalid: {p.name}")
 
 
 def validate_audio_input(path: str, label: str) -> Path:
     """Validate that an input is a supported WAV or MP3 file."""
-    p = Path(path)
+    p = expand_user(path)
     if not p.exists():
         raise FileNotFoundError(f"{label} file does not exist: {p}")
+    if not p.is_file():
+        raise ValueError(f"{label} path is not a file: {p}")
     suffix = p.suffix.lower()
     if suffix not in SUPPORTED_INPUT_SUFFIXES:
         raise ValueError(
@@ -220,9 +234,10 @@ def validate_audio_pair_compatibility(track_a: Path, track_b: Path) -> Tuple[Dic
 
 
 def load_audio_segment(path: Path) -> AudioSegment:
+    resolved = str(path.resolve())
     if _is_mp3(path):
-        return AudioSegment.from_file(str(path), format="mp3")
-    return AudioSegment.from_file(str(path), format="wav")
+        return AudioSegment.from_file(resolved, format="mp3")
+    return AudioSegment.from_file(resolved, format="wav")
 
 
 def lossy_input_note(path: Path) -> Optional[str]:
@@ -239,12 +254,13 @@ def _audio_segment_to_stereo_float32(seg: AudioSegment) -> Tuple[np.ndarray, int
     channels = int(seg.channels)
     if len(seg) == 0:
         return np.zeros((0, max(1, channels)), dtype=np.float32), sr
-    samples = np.array(seg.get_array_of_samples(), dtype=np.float32)
+    math_seg = seg.set_sample_width(4) if seg.sample_width == 3 else seg
+    samples = np.array(math_seg.get_array_of_samples(), dtype=np.float32)
     if channels > 1:
         samples = samples.reshape((-1, channels))
     else:
         samples = samples.reshape((-1, 1))
-    peak = float(2 ** (8 * seg.sample_width - 1))
+    peak = float(2 ** (8 * math_seg.sample_width - 1))
     return (samples / peak).astype(np.float32), sr
 
 
@@ -262,7 +278,7 @@ def read_audio_window(path: str, start_sec: float, duration_sec: float) -> Tuple
         y, sr_read = sf.read(str(p), start=start_frame, frames=frames, dtype="float32", always_2d=True)
         return y, int(sr_read)
     seg = AudioSegment.from_file(
-        str(p),
+        str(p.resolve()),
         format="mp3",
         start_second=max(0.0, start_sec),
         duration=max(0.0, duration_sec),
@@ -317,12 +333,20 @@ def resolve_wav_export_subtype(infos: Sequence[Dict[str, object]]) -> Optional[s
 
 
 def validate_audio_output(path: str) -> Path:
-    p = Path(path)
+    if not path or not path.strip():
+        raise ValueError("Output path must not be empty.")
+    p = expand_user(path)
+    if p.is_dir():
+        raise ValueError(f"Output path is a directory, not a file: {p}")
+    if p.name in ("", ".", ".."):
+        raise ValueError(f"Invalid output file path: {path!r}")
     suffix = p.suffix.lower()
     if suffix and suffix not in SUPPORTED_OUTPUT_SUFFIXES:
         raise ValueError(f"Output must be .wav or .mp3. Got: {p.name}")
     if not p.suffix:
         p = p.with_suffix(".wav")
+    if p.is_dir():
+        raise ValueError(f"Output path is a directory, not a file: {p}")
     return p
 
 
@@ -461,7 +485,10 @@ def format_timestamp(seconds: float) -> str:
     """Format seconds as M:SS (or H:MM:SS) for human-readable mix timeline positions."""
     if seconds is None:
         return "unknown"
-    total = max(0, int(round(float(seconds))))
+    val = float(seconds)
+    if not math.isfinite(val):
+        return "unknown"
+    total = max(0, int(round(val)))
     minutes = total // 60
     secs = total % 60
     return f"{minutes}:{secs:02d}"
@@ -610,6 +637,8 @@ def estimate_key(y: np.ndarray, sr: int) -> Tuple[Optional[str], Optional[str]]:
         chroma_mean = np.mean(chroma, axis=1)
         if np.max(chroma_mean) > 0:
             chroma_mean = chroma_mean / np.max(chroma_mean)
+        if float(np.std(chroma_mean)) < 1e-12:
+            return None, None
         best = (-1e9, None, None)
         for root in range(12):
             maj = np.roll(MAJOR_PROFILES, root)
@@ -822,7 +851,7 @@ def _demucs_cli_vocals_path(audio_path: str, model: str = "htdemucs") -> Path:
     src = Path(audio_path).resolve()
     cache_dir = Path.cwd() / ".weaveshift_demucs_cache" / _audio_cache_key(audio_path)
     model_dir = cache_dir / model
-    existing = sorted(model_dir.glob("*/vocals.wav")) if model_dir.exists() else []
+    existing = [p for p in sorted(model_dir.glob("*/vocals.wav")) if is_within(p, [cache_dir])] if model_dir.exists() else []
     if existing:
         return existing[0]
 
@@ -842,7 +871,7 @@ def _demucs_cli_vocals_path(audio_path: str, model: str = "htdemucs") -> Path:
     ]
     logger.info("Demucs API unavailable; running CLI fallback: %s ...", " ".join(cmd[:6]))
     subprocess.run(cmd, check=True)
-    generated = sorted(model_dir.glob("*/vocals.wav"))
+    generated = [p for p in sorted(model_dir.glob("*/vocals.wav")) if is_within(p, [cache_dir])]
     if not generated:
         raise RuntimeError(f"Demucs CLI completed but no vocals.wav was found under {model_dir}")
     return generated[0]
@@ -874,8 +903,8 @@ def vocal_segments_demucs(
 
     info = torchaudio.info(audio_path)  # pyright: ignore[reportAttributeAccessIssue]
     sr_native = int(info.sample_rate)
-    frame_offset = int(start_sec * sr_native)
-    requested_frames = int(duration_sec * sr_native)
+    frame_offset = max(0, int(start_sec * sr_native))
+    requested_frames = max(0, int(duration_sec * sr_native))
     available_frames = max(0, int(info.num_frames) - frame_offset)
     num_frames = min(requested_frames, available_frames)
     if num_frames <= 0:

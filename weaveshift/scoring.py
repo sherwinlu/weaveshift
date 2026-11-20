@@ -302,9 +302,9 @@ def score_candidate(
 def profile_candidate_score(c: TransitionCandidate, profile: ScoringProfile) -> float:
     """Configurable style score driven by a declarative TOML ScoringProfile."""
     score = 0.55 * float(c.score)
-    target = float(profile.pref("target_overlap_sec", 4.0))
-    ov_min = float(profile.pref("preferred_overlap_min_sec", 2.0))
-    ov_max = float(profile.pref("preferred_overlap_max_sec", 8.0))
+    target = profile.pref_number("target_overlap_sec", 4.0)
+    ov_min = profile.pref_number("preferred_overlap_min_sec", 2.0)
+    ov_max = profile.pref_number("preferred_overlap_max_sec", 8.0)
     if ov_min <= c.overlap_sec <= ov_max:
         score += 0.18 * profile.weight("overlap_preference", 1.0)
     else:
@@ -385,8 +385,8 @@ def profile_search_parameters(
     if scoring_profile is not None:
         effective_trim = max(0.0, float(scoring_profile.limit("max_tail_trim_sec", effective_trim)))
         effective_b_cue = max(0.0, float(scoring_profile.limit("max_b_cue_sec", effective_b_cue)))
-        ov_min = float(scoring_profile.pref("preferred_overlap_min_sec", min(OVERLAP_LENGTHS)))
-        ov_max = float(scoring_profile.pref("preferred_overlap_max_sec", max(OVERLAP_LENGTHS)))
+        ov_min = scoring_profile.pref_number("preferred_overlap_min_sec", min(OVERLAP_LENGTHS))
+        ov_max = scoring_profile.pref_number("preferred_overlap_max_sec", max(OVERLAP_LENGTHS))
         bounded = [ov for ov in OVERLAP_LENGTHS if ov_min <= ov <= ov_max]
         if not bounded:
             logger.warning(
