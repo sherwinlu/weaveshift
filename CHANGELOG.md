@@ -4,6 +4,10 @@ All notable changes to WeaveShift will be documented in this file.
 
 ## Unreleased
 
+### Added
+
+- `Dockerfile`, `.dockerignore`, and `docs/docker.md` for running all three CLIs in a non-root `python:3.12-slim` container with `ffmpeg` and `libsndfile1` pre-installed (lean core image by default, optional `--build-arg INSTALL_DEMUCS=1` for Demucs).
+
 ### Fixed
 
 - `weaveshift-cues` BPM detection now calls `librosa.feature.tempo` instead of `librosa.feature.rhythm.tempo`, which previously failed silently when `librosa.feature.rhythm` had not already been imported.
