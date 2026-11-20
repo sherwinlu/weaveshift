@@ -153,6 +153,8 @@ def load_setlist(path: str, allow_outside: bool = False) -> Tuple[List[TrackSpec
     p = expand_user(path)
     if not p.exists():
         raise ValueError(f"Setlist file does not exist: {path}")
+    if not p.is_file():
+        raise ValueError(f"Setlist path is not a file: {path}")
 
     settings: dict[str, object] = {}
     tracks_raw = None
@@ -194,8 +196,11 @@ def load_setlist(path: str, allow_outside: bool = False) -> Tuple[List[TrackSpec
                 raise ValueError(f"Track #{i} is missing a path/file field or it is not a string.")
             title = item.get("title") or Path(raw_path).stem
             bpm = item.get("bpm")
-            if bpm is not None and (isinstance(bpm, bool) or not isinstance(bpm, (int, float))):
-                raise ValueError(f"Track #{i} bpm must be a number. Got: {bpm!r}")
+            if bpm is not None:
+                if isinstance(bpm, bool) or not isinstance(bpm, (int, float)):
+                    raise ValueError(f"Track #{i} bpm must be a number. Got: {bpm!r}")
+                if not math.isfinite(float(bpm)) or float(bpm) <= 0:
+                    raise ValueError(f"Track #{i} bpm must be a positive finite number. Got: {bpm!r}")
             key = item.get("key")
             if key is not None and not isinstance(key, str):
                 raise ValueError(f"Track #{i} key must be a string. Got: {key!r}")

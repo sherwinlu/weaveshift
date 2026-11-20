@@ -88,7 +88,7 @@ def write_report(base: Path, suffix: str, report: Mapping[str, object]) -> Path:
     "mix v1.2.wav" must not lose part of its name to with_suffix().
     """
     path = base.with_name(base.name + suffix)
-    path.write_text(json.dumps(report, indent=2), encoding="utf-8")
+    path.write_text(json.dumps(report, indent=2, allow_nan=False), encoding="utf-8")
     return path
 
 

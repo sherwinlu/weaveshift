@@ -99,6 +99,25 @@ class SetlistMixPlan:
     segments: List[AudioSegment] = field(default_factory=list)
 
 
+def _validate_planning_params(
+    *,
+    search_a_sec: float,
+    search_b_sec: float,
+    max_trim_a_sec: float,
+    b_cue_max_sec: float,
+    bpms: Sequence[tuple[str, Optional[float]]] = (),
+) -> None:
+    for name, val in (("search_a_sec", search_a_sec), ("search_b_sec", search_b_sec)):
+        if not math.isfinite(float(val)) or float(val) <= 0:
+            raise ValueError(f"{name} must be a positive finite number. Got: {val!r}")
+    for name, val in (("max_trim_a_sec", max_trim_a_sec), ("b_cue_max_sec", b_cue_max_sec)):
+        if not math.isfinite(float(val)) or float(val) < 0:
+            raise ValueError(f"{name} must be a non-negative finite number. Got: {val!r}")
+    for name, bpm in bpms:
+        if bpm is not None and (not math.isfinite(float(bpm)) or float(bpm) <= 0):
+            raise ValueError(f"{name} must be a positive finite number. Got: {bpm!r}")
+
+
 def _effective_search_windows(
     search_a_sec: float,
     search_b_sec: float,
@@ -241,6 +260,8 @@ def _soft_duck_settings(item: dict[str, object], base: TransitionCandidate, tran
     duck_db = coerce_float_override(item, "soft_duck_db", base.soft_duck_db)
     if duck_db > 0:
         raise ValueError(f"Transition #{transition_index} override soft_duck_db must be <= 0 dB. Got {duck_db}.")
+    if duck_db < -60.0:
+        raise ValueError(f"Transition #{transition_index} override soft_duck_db must be >= -60 dB. Got {duck_db}.")
     if target == "none" and duck_db < -0.01:
         if explicit_target:
             if item.get("soft_duck_db") is not None:
@@ -305,9 +326,20 @@ def apply_manual_transition_override(
 
     if overlap <= 0:
         raise ValueError(f"Transition #{transition_index} manual override overlap_sec must be > 0. Got {overlap}.")
+    if not -24.0 <= b_gain <= 24.0:
+        raise ValueError(
+            f"Transition #{transition_index} manual override b_gain_db must be between -24 and 24 dB. Got {b_gain}."
+        )
     _validate_override_source_bounds("manual", transition_index, a_fade_start, a_cut, b_cue, track_a, track_b)
+    if b_cue + overlap > track_b.duration_sec + 0.05:
+        raise ValueError(
+            f"Transition #{transition_index} manual override b_cue_sec + overlap_sec exceeds Track B duration "
+            f"({track_b.duration_sec:.3f}s). Got {b_cue} + {overlap}."
+        )
 
-    rescored = score_candidate(track_a, track_b, a_cut, b_cue, overlap, "candidate")
+    score_a_cut = min(a_cut, track_a.duration_sec)
+    score_overlap = min(overlap, max(0.001, track_b.duration_sec - b_cue))
+    rescored = score_candidate(track_a, track_b, score_a_cut, b_cue, score_overlap, "candidate")
     trim_a_tail_sec = max(
         0.0,
         coerce_float_override(item, "trim_a_tail_sec", max(0.0, track_a.duration_sec - a_cut)),
@@ -375,8 +407,15 @@ def apply_handoff_transition_override(
             f"Got {b_fade_in} < {takeover_overlap}."
         )
     _require_handoff_between(transition_index, "b_entry_gain_db", b_entry_gain, -6.0, 3.0)
+    if b_cue + b_fade_in > track_b.duration_sec + 0.05:
+        raise ValueError(
+            f"Transition #{transition_index} handoff override b_cue_sec + b_fade_in_sec exceeds Track B duration "
+            f"({track_b.duration_sec:.3f}s). Got {b_cue} + {b_fade_in}."
+        )
 
-    rescored = score_candidate(track_a, track_b, a_cut, b_cue, takeover_overlap, "candidate")
+    score_a_cut = min(a_cut, track_a.duration_sec)
+    score_overlap = min(takeover_overlap, max(0.001, track_b.duration_sec - b_cue))
+    rescored = score_candidate(track_a, track_b, score_a_cut, b_cue, score_overlap, "candidate")
     trim_a_tail_sec = max(0.0, track_a.duration_sec - a_cut)
     notes = list(rescored.notes) + [
         "handoff transition: fades Track A down before Track B takeover",
@@ -529,6 +568,15 @@ def plan_setlist_mix(
     assembled_mix_len_ms: Optional[int] = None,
 ) -> SetlistMixPlan:
     """Analyze each junction and return a render-ready setlist plan."""
+    if len(tracks) < 2:
+        raise ValueError("Setlist must contain at least two tracks.")
+    _validate_planning_params(
+        search_a_sec=search_a_sec,
+        search_b_sec=search_b_sec,
+        max_trim_a_sec=max_trim_a_sec,
+        b_cue_max_sec=b_cue_max_sec,
+        bpms=[(f"Track #{i} bpm", t.bpm) for i, t in enumerate(tracks, start=1)],
+    )
     settings = dict(manifest_settings or {})
     scoring_profile = load_scoring_profile(profile, scoring_config) if transition_mode == "profile" else None
     effective_search_a_sec, effective_search_b_sec = _effective_search_windows(
@@ -642,6 +690,13 @@ def plan_two_track_mix(
     prefer_mps: bool = True,
 ) -> TwoTrackMixPlan:
     """Analyze both tracks, score candidates, and return a render-ready plan."""
+    _validate_planning_params(
+        search_a_sec=search_a_sec,
+        search_b_sec=search_b_sec,
+        max_trim_a_sec=max_trim_a_sec,
+        b_cue_max_sec=b_cue_max_sec,
+        bpms=[("--a-bpm", a_bpm), ("--b-bpm", b_bpm)],
+    )
     track_a_path = validate_audio_input(track_a, "Track A")
     track_b_path = validate_audio_input(track_b, "Track B")
     _note_if_lossy(track_a_path)

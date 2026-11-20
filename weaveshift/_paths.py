@@ -35,6 +35,8 @@ def resolve_contained(
     the path finally resolves, so none of them can escape the manifest directory
     unless the caller opts in with ``allow_outside``.
     """
+    if not raw or not raw.strip():
+        raise ValueError(f"{label} path must not be empty.")
     p = expand_user(raw)
     try:
         resolved = p.resolve() if p.is_absolute() else (base_dir / p).resolve()

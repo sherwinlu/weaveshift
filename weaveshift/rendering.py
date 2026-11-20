@@ -107,15 +107,20 @@ def apply_soft_duck(seg: AudioSegment, duck_db: float, attack_ms: int = 250, rel
         return seg
 
     def _duck_env(n: int, sr: int) -> np.ndarray:
-        attack_n = min(n, max(1, int(sr * attack_ms / 1000.0)))
-        release_n = min(max(1, int(sr * release_ms / 1000.0)), max(1, n - attack_n))
+        attack_n = max(1, int(sr * attack_ms / 1000.0))
+        release_n = max(1, int(sr * release_ms / 1000.0))
+        if attack_n + release_n > n:
+            attack_n = max(1, int(round(n * attack_ms / max(1, attack_ms + release_ms))))
+            attack_n = min(attack_n, max(1, n - 1))
+            release_n = max(1, n - attack_n)
         hold_n = max(0, n - attack_n - release_n)
         duck_amp = 10.0 ** (float(duck_db) / 20.0)
         env = np.ones(n, dtype=np.float64)
         env[:attack_n] = np.linspace(1.0, duck_amp, attack_n, dtype=np.float64)
         if hold_n > 0:
             env[attack_n:attack_n + hold_n] = duck_amp
-        env[attack_n + hold_n:] = np.linspace(duck_amp, 1.0, n - attack_n - hold_n, dtype=np.float64)
+        if attack_n + hold_n < n:
+            env[attack_n + hold_n:] = np.linspace(duck_amp, 1.0, n - attack_n - hold_n, dtype=np.float64)
         return env
 
     return _apply_envelope(seg, _duck_env, fallback_gain_db=duck_db)
@@ -132,17 +137,19 @@ SUBTYPE_TO_WAV_CODEC = {
 
 def export_wav_matching_subtype(seg: AudioSegment, path: Path, source_subtype: Optional[str]) -> None:
     """Export a WAV file whose on-disk bit depth matches the validated source subtype."""
-    path.parent.mkdir(parents=True, exist_ok=True)
+    resolved = path.resolve()
+    resolved.parent.mkdir(parents=True, exist_ok=True)
     codec = SUBTYPE_TO_WAV_CODEC.get(source_subtype or "")
     if codec:
-        seg.export(str(path), format="wav", parameters=["-acodec", codec])
+        seg.export(str(resolved), format="wav", parameters=["-acodec", codec])
     else:
-        seg.export(str(path), format="wav")
+        seg.export(str(resolved), format="wav")
 
 
 def export_mp3(seg: AudioSegment, path: Path, *, bitrate: str = DEFAULT_MP3_BITRATE) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    seg.export(str(path), format="mp3", bitrate=bitrate)
+    resolved = path.resolve()
+    resolved.parent.mkdir(parents=True, exist_ok=True)
+    seg.export(str(resolved), format="mp3", bitrate=bitrate)
 
 
 def export_audio(
@@ -176,14 +183,15 @@ def build_transition_audio(seg_a: AudioSegment, seg_b: AudioSegment, cand: Setli
 
     prefix = cast(AudioSegment, seg_a[:a_fade_start_ms])
     a_slice = cast(AudioSegment, seg_a[a_fade_start_ms:a_cut_ms])
-    a_fade_out_ms = max(1, len(a_slice)) if is_handoff else overlap_ms
-    raw_a_tail = cast(AudioSegment, a_slice.fade_out(a_fade_out_ms))
+    a_fade_out_ms = min(len(a_slice), max(1, len(a_slice)) if is_handoff else overlap_ms)
+    raw_a_tail = cast(AudioSegment, a_slice.fade_out(a_fade_out_ms)) if a_fade_out_ms > 0 else a_slice
     b_after_cue = cast(AudioSegment, seg_b[b_cue_ms:])
     raw_b_after_cue = cast(AudioSegment, b_after_cue.apply_gain(cand.b_gain_db))
     b_start_offset_ms = max(0, a_cut_ms - overlap_ms - a_fade_start_ms) if is_handoff else 0
-    b_head_len_ms = max(overlap_ms, b_fade_in_ms)
+    b_head_len_ms = max(overlap_ms, b_fade_in_ms, max(0, len(raw_a_tail) - b_start_offset_ms))
     b_head_slice = cast(AudioSegment, raw_b_after_cue[:b_head_len_ms])
-    raw_b_head = cast(AudioSegment, b_head_slice.fade_in(b_fade_in_ms))
+    clamped_b_fade_in_ms = min(len(b_head_slice), b_fade_in_ms)
+    raw_b_head = cast(AudioSegment, b_head_slice.fade_in(clamped_b_fade_in_ms)) if clamped_b_fade_in_ms > 0 else b_head_slice
 
     if cand.soft_duck_db < -0.01:
         if cand.soft_duck_target == "a":
