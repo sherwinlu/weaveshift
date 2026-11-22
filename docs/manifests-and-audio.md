@@ -32,6 +32,8 @@ recommended, vocal_safe, beat_aligned, quick_cut, smooth, profile, vocal_ducked,
 * `profile` uses the selected TOML profile (see [Scoring Profiles](profiles.md)).
 * `natural` preserves tracks end-to-end with a configurable silent pause (see [Per-Transition Overrides](overrides.md#natural-track-boundary)).
 
+Pass `--export-chapters` to also write chapter and tracklist sidecars beside the output mix (`.chapters.txt` for YouTube, `.ffmetadata` for FFmpeg chapter embedding, `.cue` for DJ/media players, and `.tracklist.json` for downstream tools such as `mvdirector`).
+
 ## Two-track transition usage
 
 ```bash

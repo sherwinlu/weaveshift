@@ -9,6 +9,7 @@ import math
 import re
 import subprocess
 import sys
+import tempfile
 import warnings
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -22,7 +23,7 @@ import librosa
 import pyloudnorm as pyln
 from scipy.ndimage import maximum_filter1d
 
-from weaveshift._paths import expand_user, is_within
+from weaveshift._paths import atomic_copy, expand_user, is_within
 
 
 logger = logging.getLogger(__name__)
@@ -60,6 +61,13 @@ VOCAL_METHODS = ("auto", "heuristic", "demucs", "none")
 # silently create stale local-energy curves.
 OVERLAP_LENGTHS = [2.0, 3.0, 4.0, 6.0, 8.0, 10.0, 12.0]
 MAX_OVERLAP_SEC = max(OVERLAP_LENGTHS)
+
+# Tempos outside this range are folded by whole octaves to correct half/double-time
+# beat-tracker locks.
+TEMPO_RANGE_BPM = (70.0, 160.0)
+MIN_KEY_CORRELATION = 0.25
+MIN_CHROMA_CONTRAST = 0.12  # rejects flat/atonal spectra whose normalized residuals spuriously correlate
+MIN_VOCAL_PEAK_RMS = 1e-3  # -60 dBFS floor against near-silent stem bleed
 
 
 def _is_lossless_wav(path: Path) -> bool:
@@ -628,33 +636,124 @@ CAMELOT_MINOR = {
 }
 
 
+def _unit_centered(vec: np.ndarray) -> np.ndarray:
+    centered = vec.astype(np.float64) - float(np.mean(vec))
+    norm = float(np.linalg.norm(centered))
+    if not math.isfinite(norm) or norm <= 1e-12:
+        return np.zeros_like(centered)
+    return centered / norm
+
+
+_MAJOR_PROFILE_UNIT = _unit_centered(MAJOR_PROFILES)
+_MINOR_PROFILE_UNIT = _unit_centered(MINOR_PROFILES)
+
+
+def fold_tempo(
+    tempo: float,
+    beats: Sequence[float] = (),
+    low: float = TEMPO_RANGE_BPM[0],
+    high: float = TEMPO_RANGE_BPM[1],
+) -> Tuple[float, List[float]]:
+    """Halve or double *tempo* into ``[low, high]``, keeping *beats* aligned.
+
+    Halving keeps every other beat (starting with the first); doubling inserts a
+    midpoint beat between each pair. Octave adjustments are capped so degenerate
+    near-zero or extreme values cannot blow up CPU or memory.
+    """
+    beat_list = [float(b) for b in beats]
+    if (
+        not math.isfinite(tempo)
+        or tempo <= 0.0
+        or not math.isfinite(low)
+        or not math.isfinite(high)
+        or low <= 0.0
+        or high < low
+    ):
+        return tempo, beat_list
+
+    for _ in range(4):
+        if tempo <= high:
+            break
+        tempo /= 2.0
+        if len(beat_list) > 1:
+            beat_list = beat_list[::2]
+
+    for _ in range(4):
+        if tempo >= low:
+            break
+        tempo *= 2.0
+        if len(beat_list) > 1:
+            doubled = [t for a, b in zip(beat_list, beat_list[1:]) for t in (a, (a + b) / 2.0)]
+            beat_list = [*doubled, beat_list[-1]]
+
+    return tempo, beat_list
+
+
+def fold_tempo_to_hint(
+    tempo: float,
+    hint_bpm: float,
+    beats: Sequence[float] = (),
+) -> Tuple[float, List[float]]:
+    """Fold *tempo* (and *beats*) to the octave closest to a known *hint_bpm*."""
+    if not math.isfinite(hint_bpm) or hint_bpm <= 0.0:
+        return fold_tempo(tempo, beats)
+    # The exact 2:1 interval [2/3 * hint, 4/3 * hint] maps every value to its
+    # strictly nearest power-of-two multiple of hint_bpm.
+    return fold_tempo(tempo, beats, low=hint_bpm * (2.0 / 3.0), high=hint_bpm * (4.0 / 3.0))
+
+
 def estimate_key(y: np.ndarray, sr: int) -> Tuple[Optional[str], Optional[str]]:
-    if y.size < sr:
+    if y.size < sr or sr <= 0:
         return None, None
     try:
+        clean = np.nan_to_num(np.asarray(y, dtype=np.float32), nan=0.0, posinf=0.0, neginf=0.0)
+        peak = float(np.max(np.abs(clean))) if clean.size else 0.0
+        if not math.isfinite(peak) or peak < 1e-6:
+            return None, None
+
+        hop_length = 512
         with suppress_audio_warnings():
-            chroma = librosa.feature.chroma_cqt(y=y, sr=sr)
-        chroma_mean = np.mean(chroma, axis=1)
-        if np.max(chroma_mean) > 0:
-            chroma_mean = chroma_mean / np.max(chroma_mean)
-        if float(np.std(chroma_mean)) < 1e-12:
+            chroma = librosa.feature.chroma_cqt(y=clean, sr=sr, hop_length=hop_length)
+            frame_rms = librosa.feature.rms(y=clean, hop_length=hop_length)[0]
+
+        n_frames = min(chroma.shape[1], len(frame_rms))
+        if n_frames == 0:
             return None, None
-        best = (-1e9, None, None)
+        chroma = chroma[:, :n_frames]
+        frame_rms = frame_rms[:n_frames]
+        peak_rms = float(np.max(frame_rms))
+        if not math.isfinite(peak_rms) or peak_rms <= 1e-9:
+            return None, None
+
+        active = frame_rms > (peak_rms * 0.01)
+        chroma_active = chroma[:, active] if np.any(active) else chroma
+        chroma_mean = np.mean(chroma_active, axis=1)
+        chroma_avg = float(np.mean(chroma_mean))
+        if not math.isfinite(chroma_avg) or chroma_avg <= 1e-12:
+            return None, None
+        chroma_contrast = float(np.std(chroma_mean)) / chroma_avg
+        if not math.isfinite(chroma_contrast) or chroma_contrast < MIN_CHROMA_CONTRAST:
+            return None, None
+        vec = _unit_centered(chroma_mean)
+        if float(np.linalg.norm(vec)) <= 1e-12:
+            return None, None
+
+        best_corr = -1.0
+        best_root: Optional[str] = None
+        best_mode: Optional[str] = None
         for root in range(12):
-            maj = np.roll(MAJOR_PROFILES, root)
-            minor = np.roll(MINOR_PROFILES, root)
-            maj_score = np.corrcoef(chroma_mean, maj)[0, 1]
-            min_score = np.corrcoef(chroma_mean, minor)[0, 1]
-            if maj_score > best[0]:
-                best = (float(maj_score), KEY_NAMES[root], "major")
-            if min_score > best[0]:
-                best = (float(min_score), KEY_NAMES[root], "minor")
-        root, mode = best[1], best[2]
-        if not root or not mode:
+            maj_score = float(np.dot(vec, np.roll(_MAJOR_PROFILE_UNIT, root)))
+            if maj_score > best_corr:
+                best_corr, best_root, best_mode = maj_score, KEY_NAMES[root], "major"
+            min_score = float(np.dot(vec, np.roll(_MINOR_PROFILE_UNIT, root)))
+            if min_score > best_corr:
+                best_corr, best_root, best_mode = min_score, KEY_NAMES[root], "minor"
+
+        if not best_root or not best_mode or best_corr < MIN_KEY_CORRELATION:
             return None, None
-        display_root = ENHARMONIC_DISPLAY.get(root, root)
-        key = f"{display_root} {mode}"
-        camelot = (CAMELOT_MAJOR if mode == "major" else CAMELOT_MINOR).get(root)
+        display_root = ENHARMONIC_DISPLAY.get(best_root, best_root)
+        key = f"{display_root} {best_mode}"
+        camelot = (CAMELOT_MAJOR if best_mode == "major" else CAMELOT_MINOR).get(best_root)
         return key, camelot
     except Exception:
         return None, None
@@ -773,7 +872,8 @@ def vocal_segments_heuristic(y: np.ndarray, sr: int, offset_sec: float, threshol
     sample_count = y.shape[-1] if y.ndim > 1 else y.shape[0]
     if sample_count < sr // 2:
         return []
-    y_mono = librosa.to_mono(y) if y.ndim > 1 else y
+    y_clean = np.nan_to_num(np.asarray(y, dtype=np.float32), nan=0.0, posinf=0.0, neginf=0.0)
+    y_mono = librosa.to_mono(y_clean) if y_clean.ndim > 1 else y_clean
     try:
         with suppress_audio_warnings():
             harmonic, _percussive = librosa.effects.hpss(y_mono)
@@ -812,12 +912,16 @@ def _vocal_segments_from_mono(
     threshold_db: float,
 ) -> List[VocalSegment]:
     """Shared activity extractor for separated mono vocal stems (API or CLI fallback)."""
-    if vocals_mono.size == 0:
+    if vocals_mono.size == 0 or sr <= 0:
         return []
+    clean = np.nan_to_num(np.asarray(vocals_mono, dtype=np.float32), nan=0.0, posinf=0.0, neginf=0.0)
     win = max(1, int(sr * 0.10))
     hop = win
     with suppress_audio_warnings():
-        rms = librosa.feature.rms(y=vocals_mono, frame_length=win, hop_length=hop)[0]
+        rms = librosa.feature.rms(y=clean, frame_length=win, hop_length=hop)[0]
+    peak_rms = float(np.max(rms)) if rms.size else 0.0
+    if not math.isfinite(peak_rms) or peak_rms < MIN_VOCAL_PEAK_RMS:
+        return []
     db = 20 * np.log10(rms + 1e-9)
     if len(db):
         adaptive = float(np.percentile(db, 72) - 10.0)
@@ -844,8 +948,8 @@ def _segments_from_vocals_wav(vocals_path: Path, start_sec: float, duration_sec:
     return _vocal_segments_from_mono(vocals_mono, int(sr_read), start_sec, threshold_db)
 
 
-def _demucs_cli_vocals_path(audio_path: str, model: str = "htdemucs") -> Path:
-    """Run/cache Demucs CLI separation and return the generated vocals.wav path."""
+def _demucs_cli_vocals_path(audio_path: str, model: str = "htdemucs", *, prefer_mps: bool = True) -> Path:
+    """Run/cache Demucs CLI separation atomically and return the cached vocals.wav path."""
     if not _SAFE_MODEL_RE.fullmatch(model):
         raise ValueError(f"Invalid Demucs model name: {model!r}")
     src = Path(audio_path).resolve()
@@ -855,26 +959,33 @@ def _demucs_cli_vocals_path(audio_path: str, model: str = "htdemucs") -> Path:
     if existing:
         return existing[0]
 
-    cache_dir.mkdir(parents=True, exist_ok=True)
-    cmd = [
-        sys.executable,
-        "-m",
-        "demucs.separate",
-        "-n",
-        model,
-        "--two-stems",
-        "vocals",
-        "-o",
-        str(cache_dir),
-        "--",
-        str(src),
-    ]
-    logger.info("Demucs API unavailable; running CLI fallback: %s ...", " ".join(cmd[:6]))
-    subprocess.run(cmd, check=True)
-    generated = [p for p in sorted(model_dir.glob("*/vocals.wav")) if is_within(p, [cache_dir])]
-    if not generated:
-        raise RuntimeError(f"Demucs CLI completed but no vocals.wav was found under {model_dir}")
-    return generated[0]
+    with tempfile.TemporaryDirectory(prefix="weaveshift_demucs_") as tmp:
+        tmp_dir = Path(tmp)
+        cmd = [
+            sys.executable,
+            "-m",
+            "demucs.separate",
+            "-n",
+            model,
+            "--two-stems",
+            "vocals",
+            "-o",
+            str(tmp_dir),
+        ]
+        if not prefer_mps and get_torch_device(prefer_mps=False) == "cpu":
+            cmd.extend(["-d", "cpu"])
+        cmd.extend(["--", str(src)])
+        logger.info("Demucs API unavailable; running CLI fallback: %s ...", " ".join(cmd[:6]))
+        subprocess.run(cmd, check=True)
+        tmp_model_dir = tmp_dir / model
+        generated = [p for p in sorted(tmp_model_dir.glob("*/vocals.wav")) if is_within(p, [tmp_dir])] if tmp_model_dir.exists() else []
+        if not generated:
+            raise RuntimeError(f"Demucs CLI completed but no vocals.wav was found under {tmp_model_dir}")
+        stem_folder = generated[0].parent.name
+        cached_vocals = model_dir / stem_folder / "vocals.wav"
+        if not is_within(cached_vocals, [cache_dir]):
+            raise RuntimeError(f"Refusing to write cached Demucs output outside {cache_dir}")
+        return atomic_copy(generated[0], cached_vocals)
 
 
 def _demucs_separate(separator_cls, wav, sr: int, device: str):
@@ -896,7 +1007,7 @@ def vocal_segments_demucs(
     except ModuleNotFoundError as exc:
         if exc.name not in {"demucs.api", "demucs"}:
             raise
-        vocals_path = _demucs_cli_vocals_path(audio_path)
+        vocals_path = _demucs_cli_vocals_path(audio_path, prefer_mps=prefer_mps)
         return _segments_from_vocals_wav(vocals_path, start_sec, duration_sec, threshold_db)
 
     import torchaudio  # pyright: ignore[reportMissingImports]
@@ -1050,6 +1161,12 @@ def analyze_audio(
             y_tempo = resample_for_analysis(y_tempo_native, sr_tempo_native, sr_tempo)
             tempo, beats = librosa.beat.beat_track(y=y_tempo, sr=sr_tempo, units="time")
         tempo = safe_float(np.asarray(tempo).flatten()[0] if np.asarray(tempo).size else tempo, None)
+        raw_beats = [float(bt) for bt in np.asarray(beats).flatten()]
+        if tempo is not None:
+            if manual_bpm is not None and manual_bpm > 0:
+                tempo, raw_beats = fold_tempo_to_hint(tempo, manual_bpm, raw_beats)
+            else:
+                tempo, raw_beats = fold_tempo(tempo, raw_beats)
     except Exception as exc:
         logger.warning(
             "Tempo/beat analysis failed for %s; continuing without beat grid. stage=tempo path=%s reason=%s",
@@ -1057,7 +1174,7 @@ def analyze_audio(
             path,
             type(exc).__name__,
         )
-        tempo, beats = None, np.array([])
+        tempo, raw_beats = None, []
 
     try:
         with suppress_audio_warnings():
@@ -1074,7 +1191,7 @@ def analyze_audio(
         )
         onsets_abs = []
 
-    beats_abs = [round(start + float(bt), 3) for bt in np.asarray(beats).flatten()]
+    beats_abs = [round(start + bt, 3) for bt in raw_beats]
     beats_abs = [bt for bt in beats_abs if start <= bt <= start + dur]
 
     est_key, est_camelot = estimate_key(y_mono, sr)

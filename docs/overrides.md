@@ -24,6 +24,7 @@ When this flag is set, WeaveShift copies a fixed allowlist of manifest `settings
 * `profile`
 * `vocal_method`
 * `make_snippets`
+* `export_chapters`
 * `natural_pause_sec`
 * `search_a_sec`
 * `search_b_sec`
