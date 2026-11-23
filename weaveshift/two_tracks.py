@@ -18,7 +18,12 @@ from weaveshift._cli import (
     write_report,
 )
 from weaveshift.audio import format_timestamp, resolve_wav_export_subtype, warn_if_vocals_skipped
-from weaveshift.plan import plan_two_track_mix
+from weaveshift.broadcast_qa import (
+    format_broadcast_qa_warnings,
+    run_broadcast_qa,
+    transition_qa_targets,
+)
+from weaveshift.plan import candidate_b_start_offset_sec, plan_two_track_mix
 from weaveshift.rendering import render_candidate
 from weaveshift.reports import build_two_track_report
 
@@ -95,14 +100,27 @@ def run(args: argparse.Namespace) -> None:
             snippet,
             output_subtype=wav_export_subtype,
         )
-        outputs.append(
-            {
-                "name": cand.name,
-                "file": str(out),
-                "snippet": str(snippet) if snippet else None,
-                "candidate": asdict(cand),
-            }
+        b_zero_sec = candidate_b_start_offset_sec(cand) - cand.b_cue_sec
+        qa_bounds, qa_onsets = transition_qa_targets(
+            cand,
+            a_zero_sec=0.0,
+            b_zero_sec=b_zero_sec,
+            track_a_analysis=mix_plan.track_a_analysis,
+            track_b_analysis=mix_plan.track_b_analysis,
         )
+        qa_report = run_broadcast_qa(out, boundary_times=qa_bounds, drum_onset_times=qa_onsets)
+        if qa_report is not None:
+            for warning in format_broadcast_qa_warnings(qa_report):
+                print(f"Warning ({cand.name}): {warning}", file=sys.stderr)
+        output_entry: dict[str, Any] = {
+            "name": cand.name,
+            "file": str(out),
+            "snippet": str(snippet) if snippet else None,
+            "candidate": asdict(cand),
+        }
+        if qa_report is not None:
+            output_entry["broadcast_qa"] = asdict(qa_report)
+        outputs.append(output_entry)
 
     outputs_by_name = {o["name"]: o for o in outputs}
     print_rankings(ranked, outputs_by_name)

@@ -34,6 +34,8 @@ recommended, vocal_safe, beat_aligned, quick_cut, smooth, profile, vocal_ducked,
 
 Pass `--export-chapters` to also write chapter and tracklist sidecars beside the output mix (`.chapters.txt` for YouTube, `.ffmetadata` for FFmpeg chapter embedding, `.cue` for DJ/media players, and `.tracklist.json` for downstream tools such as `mvdirector`).
 
+Both `weaveshift-setlist` and `weaveshift-two-tracks` automatically run streaming post-render **Broadcast Audio QA** (ITU-R BS.1770-4 integrated LUFS, 4x-oversampled True Peak in dBTP, and transition splice-click diagnostics) and record the results under `broadcast_qa` in the JSON report, warning on `stderr` if True Peak exceeds `-0.5 dBTP` or splice clicks are detected.
+
 ## Two-track transition usage
 
 ```bash

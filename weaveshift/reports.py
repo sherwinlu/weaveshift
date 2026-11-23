@@ -154,6 +154,7 @@ def build_setlist_report(
     transition_overrides: Any,
     snippet_files: Sequence[str],
     chapter_files: Mapping[str, str] | None = None,
+    broadcast_qa: Mapping[str, Any] | None = None,
 ) -> Dict[str, Any]:
     report: Dict[str, Any] = {
         "app": app_name,
@@ -176,6 +177,8 @@ def build_setlist_report(
     }
     if chapter_files is not None:
         report["chapter_files"] = dict(chapter_files)
+    if broadcast_qa is not None:
+        report["broadcast_qa"] = dict(broadcast_qa)
     validate_report_schema(report, kind="setlist")
     return report
 

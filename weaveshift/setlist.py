@@ -37,6 +37,11 @@ from weaveshift.audio import (
     sec_to_ms,
     warn_if_vocals_skipped,
 )
+from weaveshift.broadcast_qa import (
+    format_broadcast_qa_warnings,
+    run_broadcast_qa,
+    transition_qa_targets,
+)
 from weaveshift.chapters import chapters_from_setlist_report, export_chapters
 from weaveshift.plan import MAX_NATURAL_PAUSE_SEC, TrackSpec, plan_setlist_mix
 from weaveshift.rendering import build_transition_audio, export_audio
@@ -336,6 +341,25 @@ def build_continuous_mix(args: argparse.Namespace) -> None:
     out_path.parent.mkdir(parents=True, exist_ok=True)
     export_audio(final, out_path, source_subtype)
 
+    splice_boundaries: List[float] = []
+    mix_onsets: List[float] = []
+    for junction in mix_plan.junctions:
+        j_bounds, j_onsets = transition_qa_targets(
+            junction.selected,
+            a_zero_sec=mix_plan.source_zero_in_mix_sec[junction.index - 1],
+            b_zero_sec=junction.next_track_source_zero_in_mix_sec,
+            track_a_analysis=junction.track_a_analysis,
+            track_b_analysis=junction.track_b_analysis,
+        )
+        splice_boundaries.extend(j_bounds)
+        mix_onsets.extend(j_onsets)
+    qa_report = run_broadcast_qa(
+        out_path,
+        boundary_times=sorted(set(splice_boundaries)),
+        drum_onset_times=mix_onsets,
+    )
+    qa_warnings = format_broadcast_qa_warnings(qa_report) if qa_report is not None else []
+
     snippet_outputs = []
     if args.make_snippets:
         snippet_dir = base.parent / f"{base.name}_transition_snippets"
@@ -394,6 +418,7 @@ def build_continuous_mix(args: argparse.Namespace) -> None:
         transition_overrides=manifest_settings.get("transition_overrides"),
         snippet_files=snippet_outputs,
         chapter_files=chapter_files,
+        broadcast_qa=asdict(qa_report) if qa_report is not None else None,
     )
     report_path = write_report(base, SETLIST_REPORT_SUFFIX, report)
 
@@ -401,12 +426,17 @@ def build_continuous_mix(args: argparse.Namespace) -> None:
     print(f"   Duration: {format_timestamp(len(final) / 1000.0)} ({len(final)/1000.0:.2f}s)")
     if final_gain_db:
         print(f"   Final peak guard applied: {final_gain_db:+.2f} dB")
+    if qa_report is not None:
+        print(
+            f"🔊 Broadcast QA: {qa_report.integrated_lufs:.2f} LUFS, "
+            f"{qa_report.true_peak_dbtp:.2f} dBTP, {len(qa_report.splice_clicks)} splice click(s)"
+        )
     print(f"📝 Wrote setlist report: {report_path}")
     if snippet_outputs:
         print(f"🎧 Wrote {len(snippet_outputs)} transition snippets.")
     if chapter_files:
         print(f"📑 Wrote {len(chapter_files)} chapter sidecars: {', '.join(chapter_files.values())}")
-    for warning in chapter_warnings:
+    for warning in (*chapter_warnings, *qa_warnings):
         print(f"Warning: {warning}", file=sys.stderr)
 
 
