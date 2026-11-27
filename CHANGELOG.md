@@ -4,19 +4,33 @@ All notable changes to WeaveShift will be documented in this file.
 
 ## Unreleased
 
+## 1.1.0 - 2026-11-26
+
 ### Added
 
-- `Dockerfile`, `.dockerignore`, and `docs/docker.md` for running all three CLIs in a non-root `python:3.12-slim` container with `ffmpeg` and `libsndfile1` pre-installed (lean core image by default, optional `--build-arg INSTALL_DEMUCS=1` for Demucs).
-
-### Fixed
-
-- `weaveshift-cues` BPM detection now calls `librosa.feature.tempo` instead of `librosa.feature.rhythm.tempo`, which previously failed silently when `librosa.feature.rhythm` had not already been imported.
-- `weaveshift-cues` manifest validation errors now raise `ValueError` instead of `SystemExit`, returning exit code `1` consistently through the shared CLI runner.
+- **Streaming Broadcast Audio QA (`weaveshift.broadcast_qa`):** Bounded-memory (~37 MiB peak RAM) ITU-R BS.1770-4 integrated LUFS, 4x-oversampled True Peak (`dBTP`), and transition splice-click diagnostics (with `O(log N)` beat/onset exclusion and an unclipped float32 FFmpeg decode fallback). Automatically runs after `weaveshift-setlist` and `weaveshift-two-tracks` renders, records `broadcast_qa` in JSON reports, and warns on `stderr` when True Peak exceeds `-0.5 dBTP` or splice clicks are detected.
+- **Chapter & tracklist export (`weaveshift.chapters`, `--export-chapters`):** Exports YouTube chapters (`.chapters.txt`, with `<3` chapter / `<10s` warnings and automatic `H:MM:SS` over 1 hour), FFmpeg chapter metadata (`.ffmetadata`), 75-fps CUE sheets (`.cue`), and `mvdirector`-compatible tracklist JSON (`.tracklist.json`). Also supported via `--apply-manifest-settings` (`export_chapters`).
+- **Tempo octave folding (`fold_tempo`, `fold_tempo_to_hint`):** Folds half- and double-time beat-tracker locks into `[70, 160]` BPM (or the closest octave to a manual BPM hint) across `weaveshift.audio` and `weaveshift.cues`, keeping beat grids aligned.
+- **Docker support:** Added `Dockerfile`, `.dockerignore`, and `docs/docker.md` for running all three CLIs in a non-root `python:3.12-slim` container with `ffmpeg` and `libsndfile1` pre-installed (lean core image by default, optional `--build-arg INSTALL_DEMUCS=1` for Demucs).
 
 ### Changed
 
-- Consolidated shared CLI plumbing in `weaveshift._cli`, shared planner defaults and helpers in `weaveshift.plan`, shared DSP/validation helpers in `weaveshift.audio`, and generated cue CSV columns in `weaveshift.cues`.
-- Trimmed unused top-level/facade Python re-exports (`weaveshift/__init__.py`, `weaveshift.two_tracks`) and deprecated compatibility shims (`validate_wav_*`, `render_transition_tail`, `apply_gain_ramp(..., step_ms=...)`, `TechnicalScoringConfig.version`, split report schema-version constants). CLI interfaces and JSON report schemas are unchanged.
+- **Key & vocal analysis hardening:** `estimate_key()` now sanitizes non-finite samples, filters out silent frames (`frame_rms > peak_rms * 0.01`), uses centered unit-vector Krumhansl-Schmuckler dot products, and enforces chroma contrast (`0.12`) and correlation (`0.25`) floors so unpitched noise/percussion returns `(None, None)`. Vocal activity extraction sanitizes non-finite audio and adds a `-60 dBFS` bleed floor.
+- **Smooth raised-cosine soft ducking:** `apply_soft_duck()` now uses C¹-smooth raised-cosine attack/release ramps instead of piecewise-linear ramps.
+- **Atomic file writes & Demucs cache staging:** WAV/MP3 exports, JSON reports, cue CSVs, chapter sidecars, and Demucs CLI cache commits write to sibling temp files (preserving readable permissions / `0o644`) before `os.replace()`. Demucs CLI fallback runs inside a temporary staging directory and honors `--no-mps`.
+- **Documentation & codebase cleanup:** Split `README.md` into focused guides under `docs/` (`installation.md`, `docker.md`, `manifests-and-audio.md`, `profiles.md`, `overrides.md`). Consolidated shared CLI plumbing (`weaveshift._cli`), planner defaults (`weaveshift.plan`), DSP/validation helpers (`weaveshift.audio`), and cue CSV generation (`weaveshift.cues`), and trimmed unused internal compatibility shims while keeping CLI interfaces and JSON report schemas backwards-compatible.
+
+### Fixed
+
+- **DSP & rendering edge cases:** Clamped pydub `fade_out`/`fade_in` lengths to actual slice durations (preventing pydub length-doubling corruption), prevented Track B gaps/timeline drift on manual overrides where `a_cut_sec - a_fade_start_sec > overlap_sec`, scaled `apply_soft_duck()` attack/release windows proportionally on short segments, and guarded 1-sample WAVs in `moving_average()` and silent audio in `estimate_key()`.
+- **Input, planning, and report validation:** Rejected empty/dot-only paths, directories, and zero-frame/invalid-stream WAVs; enforced finite in-range planning/manifest/override values (`search_*_sec`, `max_trim_a_sec`, `b_cue_max_sec`, `bpm`, `b_gain_db`, `soft_duck_db`, Track B duration bounds, and `len(tracks) >= 2`); enforced strict RFC 8259 JSON (`allow_nan=False`) in `write_report()`.
+- **`weaveshift-cues` reliability:** Fixed BPM detection to call `librosa.feature.tempo` instead of `librosa.feature.rhythm.tempo`, and changed manifest validation errors to raise `ValueError` for consistent exit code `1` handling.
+
+### Security
+
+- **FFprobe / FFmpeg hardening:** Resolved audio paths to absolute paths before `ffprobe`/`pydub`/`ffmpeg` I/O, enforced `-protocol_whitelist file`, and added subprocess timeouts.
+- **CSV & chapter injection protection:** Neutralized spreadsheet formula prefixes (`=`, `+`, `-`, `@`, `\t`, `\r`) in `weaveshift-cues` CSV output, and stripped control characters/newlines and escaped delimiters across YouTube, FFmpeg `;FFMETADATA1`, CUE, and tracklist JSON chapter exports.
+- **Path & cache containment:** Rejected empty paths in `resolve_contained()` / `resolve_audio_path()`, blocked `..` basename fallback in `cues.py`, required `is_file()`, and verified cached/generated Demucs `vocals.wav` paths stay strictly inside `.weaveshift_demucs_cache`.
 
 ## 1.0.0 - 2026-11-18
 
