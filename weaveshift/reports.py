@@ -153,8 +153,10 @@ def build_setlist_report(
     transitions: Sequence[Mapping[str, Any]],
     transition_overrides: Any,
     snippet_files: Sequence[str],
+    chapter_files: Mapping[str, str] | None = None,
+    broadcast_qa: Mapping[str, Any] | None = None,
 ) -> Dict[str, Any]:
-    report = {
+    report: Dict[str, Any] = {
         "app": app_name,
         "schema_version": REPORT_SCHEMA_VERSION,
         "input_policy": INPUT_POLICY,
@@ -173,6 +175,10 @@ def build_setlist_report(
         "transitions": list(transitions),
         "snippet_files": list(snippet_files),
     }
+    if chapter_files is not None:
+        report["chapter_files"] = dict(chapter_files)
+    if broadcast_qa is not None:
+        report["broadcast_qa"] = dict(broadcast_qa)
     validate_report_schema(report, kind="setlist")
     return report
 

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import io
 import json
 import logging
 import math
@@ -20,8 +21,10 @@ import librosa
 import numpy as np
 
 from weaveshift._cli import run_cli
-from weaveshift._paths import expand_user, is_within
+from weaveshift._paths import atomic_write_text, expand_user, is_within
 from weaveshift.audio import (
+    fold_tempo,
+    fold_tempo_to_hint,
     frame_times,
     load_mono_analysis_audio,
     lossy_input_note,
@@ -493,8 +496,9 @@ def analyze_track(audio_file: Path, bpm_hint: Optional[float]) -> Tuple[float, O
         if len(tempo_raw):
             bpm_detected = float(tempo_raw[0])
             if bpm_hint and bpm_hint > 0:
-                candidates = [bpm_detected, bpm_detected * 2, bpm_detected / 2]
-                bpm_detected = min(candidates, key=lambda x: abs(x - bpm_hint))
+                bpm_detected, _ = fold_tempo_to_hint(bpm_detected, bpm_hint)
+            else:
+                bpm_detected, _ = fold_tempo(bpm_detected)
     except Exception as exc:
         logger.warning(
             "BPM detection failed for %s; continuing without detected tempo. stage=bpm reason=%s",
@@ -628,11 +632,11 @@ def _cue_row(r: CueResult) -> Dict[str, str]:
 
 
 def write_results(path: Path, results: List[CueResult]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", encoding="utf-8", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=CUE_FIELDNAMES)
-        writer.writeheader()
-        writer.writerows(_cue_row(r) for r in results)
+    buf = io.StringIO()
+    writer = csv.DictWriter(buf, fieldnames=CUE_FIELDNAMES, lineterminator="\n")
+    writer.writeheader()
+    writer.writerows(_cue_row(r) for r in results)
+    atomic_write_text(path, buf.getvalue(), encoding="utf-8")
 
 
 # -----------------------------

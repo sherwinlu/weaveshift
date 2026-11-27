@@ -37,6 +37,12 @@ from weaveshift.audio import (
     sec_to_ms,
     warn_if_vocals_skipped,
 )
+from weaveshift.broadcast_qa import (
+    format_broadcast_qa_warnings,
+    run_broadcast_qa,
+    transition_qa_targets,
+)
+from weaveshift.chapters import chapters_from_setlist_report, export_chapters
 from weaveshift.plan import MAX_NATURAL_PAUSE_SEC, TrackSpec, plan_setlist_mix
 from weaveshift.rendering import build_transition_audio, export_audio
 from weaveshift.reports import build_setlist_report, candidate_verdict
@@ -57,6 +63,7 @@ APPLIABLE_MANIFEST_SETTINGS: Dict[str, type] = {
     "profile": str,
     "vocal_method": str,
     "make_snippets": bool,
+    "export_chapters": bool,
     "natural_pause_sec": float,
     "search_a_sec": float,
     "search_b_sec": float,
@@ -334,6 +341,25 @@ def build_continuous_mix(args: argparse.Namespace) -> None:
     out_path.parent.mkdir(parents=True, exist_ok=True)
     export_audio(final, out_path, source_subtype)
 
+    splice_boundaries: List[float] = []
+    mix_onsets: List[float] = []
+    for junction in mix_plan.junctions:
+        j_bounds, j_onsets = transition_qa_targets(
+            junction.selected,
+            a_zero_sec=mix_plan.source_zero_in_mix_sec[junction.index - 1],
+            b_zero_sec=junction.next_track_source_zero_in_mix_sec,
+            track_a_analysis=junction.track_a_analysis,
+            track_b_analysis=junction.track_b_analysis,
+        )
+        splice_boundaries.extend(j_bounds)
+        mix_onsets.extend(j_onsets)
+    qa_report = run_broadcast_qa(
+        out_path,
+        boundary_times=sorted(set(splice_boundaries)),
+        drum_onset_times=mix_onsets,
+    )
+    qa_warnings = format_broadcast_qa_warnings(qa_report) if qa_report is not None else []
+
     snippet_outputs = []
     if args.make_snippets:
         snippet_dir = base.parent / f"{base.name}_transition_snippets"
@@ -350,6 +376,31 @@ def build_continuous_mix(args: argparse.Namespace) -> None:
             )
             snippet_outputs.append(str(snip_path))
 
+    output_duration_sec = round(len(final) / 1000.0, 3)
+    tracks_payload = [asdict(t) for t in tracks]
+    zeros_payload = [round(x, 3) for x in mix_plan.source_zero_in_mix_sec]
+    transitions_payload = [asdict(t) for t in transitions]
+
+    chapter_files: Optional[Dict[str, str]] = None
+    chapter_warnings: List[str] = []
+    if args.export_chapters:
+        mix_chapters = chapters_from_setlist_report(
+            {
+                "tracks": tracks_payload,
+                "track_source_zero_in_mix_sec": zeros_payload,
+                "transitions": transitions_payload,
+                "output_duration_sec": output_duration_sec,
+            }
+        )
+        written_chapters, chapter_warnings = export_chapters(
+            mix_chapters,
+            base,
+            out_path.name,
+            output_duration_sec,
+            title=base.name,
+        )
+        chapter_files = {k: str(v) for k, v in written_chapters.items()}
+
     report = build_setlist_report(
         app_name=SETLIST_TITLE,
         transition_mode=args.transition_mode,
@@ -357,15 +408,17 @@ def build_continuous_mix(args: argparse.Namespace) -> None:
         scoring_config=args.scoring_config,
         vocal_method=args.vocal_method,
         output_file=str(out_path),
-        output_duration_sec=round(len(final) / 1000.0, 3),
+        output_duration_sec=output_duration_sec,
         output_duration_timestamp=format_timestamp(len(final) / 1000.0),
         final_gain_db=final_gain_db,
         wav_format_validation={"reference": infos[0], "tracks": infos},
-        tracks=[asdict(t) for t in tracks],
-        track_source_zero_in_mix_sec=[round(x, 3) for x in mix_plan.source_zero_in_mix_sec],
-        transitions=[asdict(t) for t in transitions],
+        tracks=tracks_payload,
+        track_source_zero_in_mix_sec=zeros_payload,
+        transitions=transitions_payload,
         transition_overrides=manifest_settings.get("transition_overrides"),
         snippet_files=snippet_outputs,
+        chapter_files=chapter_files,
+        broadcast_qa=asdict(qa_report) if qa_report is not None else None,
     )
     report_path = write_report(base, SETLIST_REPORT_SUFFIX, report)
 
@@ -373,9 +426,18 @@ def build_continuous_mix(args: argparse.Namespace) -> None:
     print(f"   Duration: {format_timestamp(len(final) / 1000.0)} ({len(final)/1000.0:.2f}s)")
     if final_gain_db:
         print(f"   Final peak guard applied: {final_gain_db:+.2f} dB")
+    if qa_report is not None:
+        print(
+            f"🔊 Broadcast QA: {qa_report.integrated_lufs:.2f} LUFS, "
+            f"{qa_report.true_peak_dbtp:.2f} dBTP, {len(qa_report.splice_clicks)} splice click(s)"
+        )
     print(f"📝 Wrote setlist report: {report_path}")
     if snippet_outputs:
         print(f"🎧 Wrote {len(snippet_outputs)} transition snippets.")
+    if chapter_files:
+        print(f"📑 Wrote {len(chapter_files)} chapter sidecars: {', '.join(chapter_files.values())}")
+    for warning in (*chapter_warnings, *qa_warnings):
+        print(f"Warning: {warning}", file=sys.stderr)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -400,6 +462,11 @@ def build_parser() -> argparse.ArgumentParser:
         help=f"Silence between tracks in natural mode, from 0 to {MAX_NATURAL_PAUSE_SEC:g}s (default: 1.0)",
     )
     p.add_argument("--make-snippets", action="store_true", help="Export transition audition snippets from the final continuous mix")
+    p.add_argument(
+        "--export-chapters",
+        action="store_true",
+        help="Export YouTube chapters (.chapters.txt), FFmpeg metadata (.ffmetadata), CUE sheet (.cue), and tracklist JSON (.tracklist.json)",
+    )
     p.add_argument(
         "--allow-outside-manifest-dir",
         action="store_true",

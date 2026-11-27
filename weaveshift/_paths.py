@@ -1,8 +1,56 @@
-"""Shared manifest path resolution for WeaveShift CLIs."""
+"""Shared manifest path resolution and atomic file helpers for WeaveShift CLIs."""
 from __future__ import annotations
 
+import os
+import shutil
+import stat
+import tempfile
 from pathlib import Path
-from typing import Iterable
+from typing import Callable, Iterable
+
+
+def atomic_write(
+    path: Path,
+    writer: Callable[[Path], object],
+    *,
+    prefix: str = ".weaveshift_tmp_",
+) -> Path:
+    """Write *path* via a sibling temporary file and atomically replace it."""
+    resolved = path.resolve()
+    resolved.parent.mkdir(parents=True, exist_ok=True)
+    target_mode: int | None = None
+    try:
+        target_mode = stat.S_IMODE(resolved.stat().st_mode)
+    except OSError:
+        target_mode = 0o644
+    fd, tmp_name = tempfile.mkstemp(
+        prefix=prefix,
+        suffix=resolved.suffix or ".tmp",
+        dir=resolved.parent,
+    )
+    os.close(fd)
+    tmp_path = Path(tmp_name)
+    try:
+        writer(tmp_path)
+        try:
+            os.chmod(tmp_path, target_mode)
+        except OSError:
+            pass
+        os.replace(tmp_path, resolved)
+    except BaseException:
+        tmp_path.unlink(missing_ok=True)
+        raise
+    return resolved
+
+
+def atomic_copy(src: Path, dst: Path) -> Path:
+    """Copy *src* to *dst* atomically via a sibling temporary file."""
+    return atomic_write(dst, lambda tmp: shutil.copyfile(src, tmp))
+
+
+def atomic_write_text(path: Path, content: str, encoding: str = "utf-8") -> Path:
+    """Write text to *path* atomically via a sibling temporary file."""
+    return atomic_write(path, lambda tmp: tmp.write_text(content, encoding=encoding))
 
 
 def expand_user(raw: str) -> Path:

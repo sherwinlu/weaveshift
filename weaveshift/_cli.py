@@ -7,6 +7,7 @@ import sys
 from pathlib import Path
 from typing import Callable, Mapping, Optional, Sequence
 
+from weaveshift._paths import atomic_write_text
 from weaveshift._version import APP_VERSION
 from weaveshift.audio import VOCAL_METHODS, validate_audio_output
 from weaveshift.plan import (
@@ -82,13 +83,14 @@ def resolve_output(raw: str) -> tuple[Path, Path, str]:
 
 
 def write_report(base: Path, suffix: str, report: Mapping[str, object]) -> Path:
-    """Write a JSON report beside the output.
+    """Write a JSON report beside the output atomically.
 
     The suffix is appended rather than substituted: a dotted output stem such as
     "mix v1.2.wav" must not lose part of its name to with_suffix().
     """
     path = base.with_name(base.name + suffix)
-    path.write_text(json.dumps(report, indent=2, allow_nan=False), encoding="utf-8")
+    payload = json.dumps(report, indent=2, allow_nan=False)
+    atomic_write_text(path, payload, encoding="utf-8")
     return path
 
 

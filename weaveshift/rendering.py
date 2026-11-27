@@ -9,6 +9,7 @@ from typing import Callable, Optional, Tuple, cast
 import numpy as np
 from pydub import AudioSegment
 
+from weaveshift._paths import atomic_write
 from weaveshift.audio import (
     DEFAULT_MP3_BITRATE,
     SUPPORTED_MP3_SUFFIXES,
@@ -101,8 +102,18 @@ def apply_gain_ramp(seg: AudioSegment, start_gain_db: float, end_gain_db: float)
     )
 
 
+def _cosine_ramp(start: float, end: float, n: int) -> np.ndarray:
+    """Raised-cosine (C1 smooth) ramp from *start* to *end* over *n* samples."""
+    if n <= 0:
+        return np.zeros(0, dtype=np.float64)
+    if n == 1:
+        return np.array([end], dtype=np.float64)
+    t = 0.5 * (1.0 - np.cos(np.linspace(0.0, np.pi, n, dtype=np.float64)))
+    return start + (end - start) * t
+
+
 def apply_soft_duck(seg: AudioSegment, duck_db: float, attack_ms: int = 250, release_ms: int = 700) -> AudioSegment:
-    """Apply a gentle full-mix duck with a sample-smooth envelope."""
+    """Apply a gentle full-mix duck with a raised-cosine sample-smooth envelope."""
     if len(seg) <= 0 or duck_db >= -0.01:
         return seg
 
@@ -116,11 +127,11 @@ def apply_soft_duck(seg: AudioSegment, duck_db: float, attack_ms: int = 250, rel
         hold_n = max(0, n - attack_n - release_n)
         duck_amp = 10.0 ** (float(duck_db) / 20.0)
         env = np.ones(n, dtype=np.float64)
-        env[:attack_n] = np.linspace(1.0, duck_amp, attack_n, dtype=np.float64)
+        env[:attack_n] = _cosine_ramp(1.0, duck_amp, attack_n)
         if hold_n > 0:
             env[attack_n:attack_n + hold_n] = duck_amp
         if attack_n + hold_n < n:
-            env[attack_n + hold_n:] = np.linspace(duck_amp, 1.0, n - attack_n - hold_n, dtype=np.float64)
+            env[attack_n + hold_n:] = _cosine_ramp(duck_amp, 1.0, n - attack_n - hold_n)
         return env
 
     return _apply_envelope(seg, _duck_env, fallback_gain_db=duck_db)
@@ -137,19 +148,23 @@ SUBTYPE_TO_WAV_CODEC = {
 
 def export_wav_matching_subtype(seg: AudioSegment, path: Path, source_subtype: Optional[str]) -> None:
     """Export a WAV file whose on-disk bit depth matches the validated source subtype."""
-    resolved = path.resolve()
-    resolved.parent.mkdir(parents=True, exist_ok=True)
     codec = SUBTYPE_TO_WAV_CODEC.get(source_subtype or "")
     if codec:
-        seg.export(str(resolved), format="wav", parameters=["-acodec", codec])
+        atomic_write(
+            path,
+            lambda tmp: seg.export(str(tmp), format="wav", parameters=["-acodec", codec]),
+            prefix=".weaveshift_export_",
+        )
     else:
-        seg.export(str(resolved), format="wav")
+        atomic_write(path, lambda tmp: seg.export(str(tmp), format="wav"), prefix=".weaveshift_export_")
 
 
 def export_mp3(seg: AudioSegment, path: Path, *, bitrate: str = DEFAULT_MP3_BITRATE) -> None:
-    resolved = path.resolve()
-    resolved.parent.mkdir(parents=True, exist_ok=True)
-    seg.export(str(resolved), format="mp3", bitrate=bitrate)
+    atomic_write(
+        path,
+        lambda tmp: seg.export(str(tmp), format="mp3", bitrate=bitrate),
+        prefix=".weaveshift_export_",
+    )
 
 
 def export_audio(
