@@ -22,6 +22,17 @@ CHAPTER_FILE_SUFFIXES: Dict[str, str] = {
 }
 
 
+def _safe_sec(value: float) -> float:
+    """Clamp non-finite or negative timestamps to 0.0 for safe formatting and JSON export."""
+    if isinstance(value, bool):
+        return 0.0
+    try:
+        num = float(value)
+    except (TypeError, ValueError):
+        return 0.0
+    return num if math.isfinite(num) and num > 0.0 else 0.0
+
+
 @dataclass(frozen=True)
 class MixChapter:
     """One track chapter inside a rendered continuous mix."""
@@ -36,7 +47,7 @@ class MixChapter:
 
     @property
     def duration_sec(self) -> float:
-        return max(0.0, self.end_sec - self.start_sec)
+        return max(0.0, _safe_sec(self.end_sec) - _safe_sec(self.start_sec))
 
 
 def _clean_line(text: str) -> str:
@@ -174,11 +185,18 @@ def format_youtube_chapters(
             f"YouTube requires every chapter to be >= 10s; short chapter(s): {', '.join(short)}."
         )
 
-    use_hours = math.isfinite(total_duration_sec) and total_duration_sec >= 3600.0
+    max_stamp = max(
+        [
+            _safe_sec(total_duration_sec),
+            *(_safe_sec(ch.start_sec) for ch in chapters),
+            *(_safe_sec(ch.end_sec) for ch in chapters),
+        ]
+    )
+    use_hours = max_stamp >= 3600.0
     lines: List[str] = []
     prev_sec = -1
     for idx, ch in enumerate(chapters):
-        sec = 0 if idx == 0 else max(prev_sec + 1, int(round(max(0.0, ch.start_sec))))
+        sec = 0 if idx == 0 else max(prev_sec + 1, int(round(_safe_sec(ch.start_sec))))
         prev_sec = sec
         stamp = _format_yt_timestamp(float(sec), use_hours=use_hours)
         label = format_chapter_label(ch.title, ch.artist)
@@ -198,10 +216,10 @@ def format_ffmetadata_chapters(
     title: str = "WeaveShift Mix",
 ) -> str:
     """Render an FFmpeg ``;FFMETADATA1`` document with millisecond chapter markers."""
-    lines = [";FFMETADATA1", f"title={_escape_ffmetadata(title)}"]
+    lines = [";FFMETADATA1", f"title={_escape_ffmetadata(title or 'WeaveShift Mix')}"]
     for ch in chapters:
-        start_ms = max(0, int(round(max(0.0, ch.start_sec) * 1000.0)))
-        end_ms = max(start_ms + 1, int(round(max(0.0, ch.end_sec) * 1000.0)))
+        start_ms = max(0, int(round(_safe_sec(ch.start_sec) * 1000.0)))
+        end_ms = max(start_ms + 1, int(round(_safe_sec(ch.end_sec) * 1000.0)))
         label = format_chapter_label(ch.title, ch.artist)
         lines.extend(
             [
@@ -222,7 +240,7 @@ def _escape_cue_string(value: str) -> str:
 
 def _format_cue_index(seconds: float) -> str:
     """Format seconds as CUE ``MM:SS:FF`` (75 CD frames/sec) without frame overflow."""
-    total_frames = max(0, int(round(max(0.0, seconds) * 75.0)))
+    total_frames = max(0, int(round(_safe_sec(seconds) * 75.0)))
     ff = total_frames % 75
     total_secs = total_frames // 75
     ss = total_secs % 60
@@ -237,21 +255,25 @@ def format_cue_sheet(
     title: str = "WeaveShift Mix",
 ) -> str:
     """Render a standard CUE sheet (compatible with DJ players and mvdirector)."""
-    file_name = _escape_cue_string(Path(audio_filename).name or "mix.wav")
+    file_name = _escape_cue_string(Path(audio_filename).name) or "mix.wav"
     file_type = "MP3" if Path(file_name).suffix.lower() == ".mp3" else "WAVE"
+    sheet_title = _escape_cue_string(title) or "WeaveShift Mix"
     lines = [
-        f'TITLE "{_escape_cue_string(title)}"',
+        f'TITLE "{sheet_title}"',
         f'FILE "{file_name}" {file_type}',
     ]
     for idx, ch in enumerate(chapters, start=1):
+        ch_title = _escape_cue_string(ch.title) or f"Track {idx:02d}"
         lines.append(f"  TRACK {idx:02d} AUDIO")
-        lines.append(f'    TITLE "{_escape_cue_string(ch.title)}"')
-        if ch.artist:
-            lines.append(f'    PERFORMER "{_escape_cue_string(ch.artist)}"')
+        lines.append(f'    TITLE "{ch_title}"')
+        artist = _escape_cue_string(ch.artist) if ch.artist else ""
+        if artist:
+            lines.append(f'    PERFORMER "{artist}"')
         if ch.bpm is not None and math.isfinite(ch.bpm) and ch.bpm > 0:
             lines.append(f"    REM BPM {ch.bpm:.2f}")
-        if ch.key:
-            lines.append(f'    REM KEY "{_escape_cue_string(ch.key)}"')
+        key = _escape_cue_string(ch.key) if ch.key else ""
+        if key:
+            lines.append(f'    REM KEY "{key}"')
         lines.append(f"    INDEX 01 {_format_cue_index(ch.start_sec)}")
     return "\n".join(lines) + "\n"
 
@@ -263,19 +285,24 @@ def build_tracklist_document(
 ) -> Dict[str, Any]:
     """Build a standard tracklist JSON dict (directly ingestible by mvdirector mix mode)."""
     tracks: List[Dict[str, Any]] = []
-    for ch in chapters:
+    for idx, ch in enumerate(chapters, start=1):
+        start_val = round(_safe_sec(ch.start_sec), 3)
+        end_val = round(_safe_sec(ch.end_sec), 3)
+        ch_title = _clean_line(ch.title) or f"Track {idx:02d}"
         entry: Dict[str, Any] = {
-            "start": round(max(0.0, ch.start_sec), 3),
-            "title": ch.title,
+            "start": start_val,
+            "title": ch_title,
         }
-        if ch.end_sec > ch.start_sec:
-            entry["end"] = round(ch.end_sec, 3)
-        if ch.artist:
-            entry["artist"] = ch.artist
+        if end_val > start_val:
+            entry["end"] = end_val
+        artist = _clean_line(ch.artist) if ch.artist else ""
+        if artist:
+            entry["artist"] = artist
         if ch.bpm is not None and math.isfinite(ch.bpm) and 20.0 < ch.bpm < 300.0:
             entry["bpm"] = round(ch.bpm, 2)
-        if ch.key:
-            entry["key"] = ch.key
+        key = _clean_line(ch.key) if ch.key else ""
+        if key:
+            entry["key"] = key
         tracks.append(entry)
     return {
         "title": _clean_line(title) or "WeaveShift Mix",

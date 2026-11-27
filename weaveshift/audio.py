@@ -660,7 +660,7 @@ def fold_tempo(
     midpoint beat between each pair. Octave adjustments are capped so degenerate
     near-zero or extreme values cannot blow up CPU or memory.
     """
-    beat_list = [float(b) for b in beats]
+    beat_list = [float(b) for b in beats if math.isfinite(float(b))]
     if (
         not math.isfinite(tempo)
         or tempo <= 0.0

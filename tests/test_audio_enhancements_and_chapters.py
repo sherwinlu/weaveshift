@@ -64,6 +64,10 @@ def test_fold_tempo_preserves_in_range_and_handles_degenerate_inputs():
     t_small, b_small = fold_tempo(1e-6, [0.0, 1.0])
     assert t_small == pytest.approx(1e-6 * 16)
     assert len(b_small) == 17
+    # Non-finite beats are stripped rather than multiplied during octave doubling.
+    t_clean, b_clean = fold_tempo(64.0, [0.0, float("nan"), float("inf"), 1.0])
+    assert t_clean == pytest.approx(128.0)
+    assert b_clean == [0.0, 0.5, 1.0]
 
 
 def test_fold_tempo_to_hint_matches_nearest_octave():
@@ -160,13 +164,20 @@ def test_atomic_helpers_and_export_preserve_existing_file_on_failure(tmp_path, m
     target = tmp_path / "existing.txt"
     target.write_text("original", encoding="utf-8")
 
-    # Successful atomic write & copy
+    # Successful atomic write & copy preserve readable mode (not restrictive 0o600 mkstemp default)
+    import stat
+
     atomic_write_text(target, "updated")
     assert target.read_text(encoding="utf-8") == "updated"
+
+    fresh = tmp_path / "fresh.txt"
+    atomic_write_text(fresh, "hello")
+    assert stat.S_IMODE(fresh.stat().st_mode) & 0o444 == 0o444
 
     copied = tmp_path / "copied.txt"
     atomic_copy(target, copied)
     assert copied.read_text(encoding="utf-8") == "updated"
+    assert stat.S_IMODE(copied.stat().st_mode) & 0o444 == 0o444
 
     # Failed audio export must preserve existing destination and clean up temp files.
     wav_dest = tmp_path / "mix.wav"
@@ -390,3 +401,30 @@ def test_setlist_build_exports_chapter_sidecars(tmp_path, monkeypatch):
     tl = json.loads(Path(report["chapter_files"]["tracklist"]).read_text(encoding="utf-8"))
     assert tl["tracks"][0]["title"] == "Track One"
     assert tl["tracks"][1]["start"] == pytest.approx(2.0, abs=0.05)
+
+
+def test_chapters_handle_non_finite_timestamps_over_hour_and_blank_metadata():
+    bad_chapters = [
+        MixChapter(0, float("nan"), float("inf"), "\n\t"),
+        MixChapter(1, float("inf"), 10.0, "Second\nLine"),
+    ]
+    yt_txt, _ = format_youtube_chapters(bad_chapters, float("inf"))
+    assert len(yt_txt.splitlines()) == 2
+    ffmeta = format_ffmetadata_chapters(bad_chapters)
+    assert ";FFMETADATA1" in ffmeta
+    cue = format_cue_sheet(bad_chapters, "\n\t")
+    assert 'FILE "mix.wav" WAVE' in cue
+    assert 'TITLE "Track 01"' in cue
+    doc = build_tracklist_document(bad_chapters)
+    # Must be strict JSON-serializable without NaN/Inf and with cleaned single-line titles.
+    dumped = json.dumps(doc, allow_nan=False)
+    assert '"Track 01"' in dumped
+    assert '"Second Line"' in dumped
+
+    # Chapter >= 1h triggers H:MM:SS formatting even if total_duration_sec is underestimated.
+    over_hour = [
+        MixChapter(0, 0.0, 3665.0, "Hour One"),
+        MixChapter(1, 3665.0, 3700.0, "Hour Two"),
+    ]
+    yt_hr, _ = format_youtube_chapters(over_hour, total_duration_sec=100.0)
+    assert yt_hr.splitlines() == ["0:00:00 Hour One", "1:01:05 Hour Two"]

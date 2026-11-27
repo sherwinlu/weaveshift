@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import os
 import shutil
+import stat
 import tempfile
 from pathlib import Path
 from typing import Callable, Iterable
@@ -17,6 +18,11 @@ def atomic_write(
     """Write *path* via a sibling temporary file and atomically replace it."""
     resolved = path.resolve()
     resolved.parent.mkdir(parents=True, exist_ok=True)
+    target_mode: int | None = None
+    try:
+        target_mode = stat.S_IMODE(resolved.stat().st_mode)
+    except OSError:
+        target_mode = 0o644
     fd, tmp_name = tempfile.mkstemp(
         prefix=prefix,
         suffix=resolved.suffix or ".tmp",
@@ -26,6 +32,10 @@ def atomic_write(
     tmp_path = Path(tmp_name)
     try:
         writer(tmp_path)
+        try:
+            os.chmod(tmp_path, target_mode)
+        except OSError:
+            pass
         os.replace(tmp_path, resolved)
     except BaseException:
         tmp_path.unlink(missing_ok=True)

@@ -90,6 +90,32 @@ def test_scan_splice_clicks_detects_step_click_and_respects_onset_exclusion():
     # Excluding a known beat/drum onset at 1.0s suppresses the flag.
     assert scan_splice_clicks(clicked, sr, boundary_times=[1.0], drum_onset_times=[1.0]) == []
 
+    # Unsorted boundary_times must still detect all clicks (no earlier click dropped).
+    two_clicks = clean.copy()
+    two_clicks[int(0.5 * sr)] += 0.65
+    two_clicks[int(1.5 * sr)] += 0.65
+    found_two = scan_splice_clicks(two_clicks, sr, boundary_times=[1.5, 0.5])
+    assert len(found_two) == 2
+    assert abs(found_two[0] - 0.5) <= 0.005
+    assert abs(found_two[1] - 1.5) <= 0.005
+
+
+def test_broadcast_qa_rejects_3d_arrays_and_caps_oversample_and_handles_non_finite_warnings():
+    arr3d = np.zeros((10, 2, 2), dtype=np.float64)
+    with pytest.raises(ValueError, match="1-D or 2-D"):
+        integrated_lufs(arr3d, 48000)
+    with pytest.raises(ValueError, match="1-D or 2-D"):
+        true_peak_dbtp(arr3d)
+    with pytest.raises(ValueError, match="1-D or 2-D"):
+        scan_splice_clicks(arr3d, 48000)
+
+    # Oversample factor is safely bounded (no DoS on huge values, safe on negative values).
+    assert np.isfinite(true_peak_dbtp(np.ones(100), oversample=-4))
+    assert np.isfinite(true_peak_dbtp(np.ones(100), oversample=10000))
+
+    # Non-finite warning values do not raise or emit bogus warnings.
+    assert format_broadcast_qa_warnings(BroadcastAudioReport(float("nan"), float("nan"), [float("nan")])) == []
+
 
 # -----------------------------
 # Streaming parity & MP3 fallback

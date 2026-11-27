@@ -10,6 +10,7 @@ Credits & Attribution:
 """
 from __future__ import annotations
 
+from bisect import bisect_left
 from dataclasses import dataclass, field
 import logging
 import math
@@ -29,6 +30,8 @@ logger = logging.getLogger(__name__)
 TRUE_PEAK_WARN_DBTP = -0.5
 _TRUE_PEAK_HALF_TAPS = 6
 _TRUE_PEAK_OVERLAP = _TRUE_PEAK_HALF_TAPS * 2  # full 12-tap kernel width across chunks
+_DEFAULT_CHUNK_SECONDS = 10.0
+_MAX_OVERSAMPLE = 16
 
 _BiquadCoeffs = Tuple[float, float, float, float, float]
 
@@ -42,8 +45,18 @@ class BroadcastAudioReport:
     splice_clicks: List[float] = field(default_factory=list)
 
 
-def _sanitize_audio(samples: np.ndarray) -> np.ndarray:
-    return np.nan_to_num(np.asarray(samples, dtype=np.float64), nan=0.0, posinf=0.0, neginf=0.0)
+def _sanitize_audio(samples: np.ndarray, *, copy: bool = True) -> np.ndarray:
+    arr = np.asarray(samples, dtype=np.float64)
+    return np.nan_to_num(arr, copy=copy, nan=0.0, posinf=0.0, neginf=0.0)
+
+
+def _as_2d_audio(samples: np.ndarray) -> np.ndarray:
+    arr = _sanitize_audio(samples)
+    if arr.ndim == 1:
+        return arr[:, None]
+    if arr.ndim == 2:
+        return arr
+    raise ValueError(f"Expected 1-D or 2-D audio array, got shape {arr.shape}.")
 
 
 def _k_weight_coeffs(sr: int) -> Tuple[_BiquadCoeffs, _BiquadCoeffs]:
@@ -126,9 +139,7 @@ def integrated_lufs(samples: np.ndarray, sr: int) -> float:
 
     Returns ``-70.0`` for silent or ultra-short (<400 ms) signals.
     """
-    arr = _sanitize_audio(samples)
-    if arr.ndim == 1:
-        arr = arr[:, None]
+    arr = _as_2d_audio(samples)
     if arr.size == 0 or sr <= 0:
         return -70.0
 
@@ -150,7 +161,7 @@ def integrated_lufs(samples: np.ndarray, sr: int) -> float:
 
 
 def _true_peak_kernels(oversample: int) -> List[np.ndarray]:
-    factor = max(1, int(oversample))
+    factor = min(_MAX_OVERSAMPLE, max(1, int(oversample)))
     if factor == 1:
         return []
     taps = np.arange(-_TRUE_PEAK_HALF_TAPS, _TRUE_PEAK_HALF_TAPS, dtype=np.float64)
@@ -178,15 +189,25 @@ def _max_oversampled_peak(arr: np.ndarray, kernels: Sequence[np.ndarray]) -> flo
 
 def true_peak_dbtp(samples: np.ndarray, *, oversample: int = 4) -> float:
     """Compute 4x-oversampled True Peak in dBTP using Hann-windowed sinc interpolation."""
-    arr = _sanitize_audio(samples)
-    if arr.ndim == 1:
-        arr = arr[:, None]
+    arr = _as_2d_audio(samples)
     if arr.size == 0:
         return -120.0
 
     kernels = _true_peak_kernels(oversample)
     peak = _max_oversampled_peak(arr, kernels)
     return -120.0 if peak <= 1e-12 else float(20.0 * math.log10(peak))
+
+
+def _near_any_onset(t_sec: float, sorted_onsets: Sequence[float], tolerance: float) -> bool:
+    """O(log N) proximity check against a sorted onset list."""
+    if not sorted_onsets or tolerance < 0.0:
+        return False
+    pos = bisect_left(sorted_onsets, t_sec)
+    if pos < len(sorted_onsets) and abs(sorted_onsets[pos] - t_sec) <= tolerance:
+        return True
+    if pos > 0 and abs(t_sec - sorted_onsets[pos - 1]) <= tolerance:
+        return True
+    return False
 
 
 def scan_splice_clicks(
@@ -205,25 +226,24 @@ def scan_splice_clicks(
     spikes against a 10 ms local median floor, verifies the spike lacks a sustained 10 ms
     musical tail, and ignores spikes near known beat/drum onsets.
     """
-    wav = _sanitize_audio(samples)
-    if wav.ndim > 1:
-        wav = wav.mean(axis=1)
+    arr = _as_2d_audio(samples)
+    wav = arr.mean(axis=1)
     if wav.size < 64 or sr <= 0:
         return []
 
     hpf = np.abs(np.diff(wav, n=2, prepend=wav[:2]))
     win_ms = max(8, int(round(0.010 * sr)))
-    safe_onsets = [float(t) for t in drum_onset_times if math.isfinite(float(t))]
+    safe_onsets = sorted(float(t) for t in drum_onset_times if math.isfinite(float(t)))
     clicks: List[float] = []
 
     if boundary_times is not None:
+        sorted_bounds = sorted(float(t) for t in boundary_times if math.isfinite(float(t)) and float(t) > 0.0)
         search_windows = [
             (
-                max(win_ms, int(round((float(t) - 0.025) * sr))),
-                min(wav.size - win_ms, int(round((float(t) + 0.025) * sr))),
+                max(win_ms, int(round((t - 0.025) * sr))),
+                min(wav.size - win_ms, int(round((t + 0.025) * sr))),
             )
-            for t in boundary_times
-            if math.isfinite(float(t)) and float(t) > 0.0
+            for t in sorted_bounds
         ]
     else:
         step = max(win_ms, int(round(0.020 * sr)))
@@ -241,7 +261,7 @@ def scan_splice_clicks(
             continue
         idx = lo + rel_idx
         t_sec = idx / sr
-        if any(abs(t_sec - onset) <= onset_exclude_seconds for onset in safe_onsets):
+        if _near_any_onset(t_sec, safe_onsets, onset_exclude_seconds):
             continue
         pre = hpf[max(0, idx - win_ms) : max(1, idx - 2)]
         post = hpf[min(wav.size - 1, idx + 3) : min(wav.size, idx + win_ms)]
@@ -272,7 +292,6 @@ def _decode_to_float32_wav(audio_path: Path, dst_wav: Path) -> Path:
         "-vn",
         "-c:a",
         "pcm_f32le",
-        "--",
         str(dst_wav.resolve()),
     ]
     try:
@@ -293,14 +312,14 @@ def _analyze_broadcast_soundfile(
     *,
     boundary_times: Optional[Sequence[float]] = None,
     drum_onset_times: Sequence[float] = (),
-    chunk_seconds: float = 30.0,
+    chunk_seconds: float = _DEFAULT_CHUNK_SECONDS,
 ) -> BroadcastAudioReport:
     safe_boundaries: Optional[List[float]] = (
-        [float(t) for t in boundary_times if math.isfinite(float(t)) and float(t) > 0.0]
+        sorted(float(t) for t in boundary_times if math.isfinite(float(t)) and float(t) > 0.0)
         if boundary_times is not None
         else None
     )
-    safe_onsets = [float(t) for t in drum_onset_times if math.isfinite(float(t))]
+    safe_onsets = sorted(float(t) for t in drum_onset_times if math.isfinite(float(t)))
 
     with sf.SoundFile(str(audio_path)) as handle:
         sr = int(handle.samplerate)
@@ -314,7 +333,7 @@ def _analyze_broadcast_soundfile(
         safe_chunk_sec = (
             min(300.0, max(1.0, float(chunk_seconds)))
             if math.isfinite(float(chunk_seconds)) and float(chunk_seconds) > 0.0
-            else 30.0
+            else _DEFAULT_CHUNK_SECONDS
         )
         chunk_frames = max(block_len * 4, int(round(safe_chunk_sec * sr)))
         kernels = _true_peak_kernels(4)
@@ -344,7 +363,7 @@ def _analyze_broadcast_soundfile(
             raw_chunk = handle.read(chunk_frames, dtype="float64", always_2d=True)
             if raw_chunk.size == 0:
                 break
-            chunk = _sanitize_audio(raw_chunk)
+            chunk = _sanitize_audio(raw_chunk, copy=False)
             chunk_start_sample = total_frames
             total_frames += chunk.shape[0]
             short_sq_sum += np.sum(chunk * chunk, axis=0)
@@ -353,10 +372,11 @@ def _analyze_broadcast_soundfile(
             tp_buf = np.concatenate([tp_carry, chunk], axis=0) if tp_carry.size else chunk
             max_peak = max(max_peak, _max_oversampled_peak(tp_buf, kernels))
             tp_carry = (
-                chunk[-_TRUE_PEAK_OVERLAP:]
+                chunk[-_TRUE_PEAK_OVERLAP:].copy()
                 if chunk.shape[0] >= _TRUE_PEAK_OVERLAP
-                else tp_buf[-_TRUE_PEAK_OVERLAP:]
+                else tp_buf[-_TRUE_PEAK_OVERLAP:].copy()
             )
+            del tp_buf
 
             # 2. Stateful streaming BS.1770-4 K-weighting + 400 ms / 100 ms blocks.
             if use_k:
@@ -364,18 +384,21 @@ def _analyze_broadcast_soundfile(
                 for ch in range(n_channels):
                     y, zi1[ch] = lfilter(b1, a1, chunk[:, ch], zi=zi1[ch])
                     weighted[:, ch], zi2[ch] = lfilter(b2, a2, y, zi=zi2[ch])
+                    del y
             else:
                 weighted = chunk
 
             k_buf = np.concatenate([k_carry, weighted], axis=0) if k_carry.size else weighted
+            del weighted
             if k_buf.shape[0] >= block_len:
                 n_blk = 1 + (k_buf.shape[0] - block_len) // hop_len
                 for idx in range(n_blk):
                     seg = k_buf[idx * hop_len : idx * hop_len + block_len]
                     block_powers.append(float(np.sum(np.mean(seg * seg, axis=0) * ch_weights)))
-                k_carry = k_buf[n_blk * hop_len :]
+                k_carry = k_buf[n_blk * hop_len :].copy()
             else:
-                k_carry = k_buf
+                k_carry = k_buf.copy()
+            del k_buf
 
             # 3. Streaming splice-click scan with 50 ms overlap across chunks.
             mono = chunk.mean(axis=1)
@@ -389,11 +412,9 @@ def _analyze_broadcast_soundfile(
                 ]
             else:
                 local_bounds = None
-            local_onsets = [
-                t - buf_start_sec
-                for t in safe_onsets
-                if buf_start_sec - 0.05 <= t <= buf_end_sec + 0.05
-            ]
+            lo_on = bisect_left(safe_onsets, buf_start_sec - 0.05)
+            hi_on = bisect_left(safe_onsets, buf_end_sec + 0.05)
+            local_onsets = [t - buf_start_sec for t in safe_onsets[lo_on:hi_on]]
             if local_bounds is None or local_bounds:
                 local_clicks = scan_splice_clicks(
                     c_buf,
@@ -406,8 +427,11 @@ def _analyze_broadcast_soundfile(
                     if abs_t > 0.0 and (not clicks or abs_t - clicks[-1] > 0.05):
                         clicks.append(abs_t)
             click_carry = (
-                mono[-click_overlap:] if mono.size >= click_overlap else c_buf[-click_overlap:]
+                mono[-click_overlap:].copy()
+                if mono.size >= click_overlap
+                else c_buf[-click_overlap:].copy()
             )
+            del mono, c_buf
 
     if total_frames == 0:
         lufs = -70.0
@@ -430,7 +454,7 @@ def analyze_broadcast_audio(
     *,
     boundary_times: Optional[Sequence[float]] = None,
     drum_onset_times: Sequence[float] = (),
-    chunk_seconds: float = 30.0,
+    chunk_seconds: float = _DEFAULT_CHUNK_SECONDS,
 ) -> BroadcastAudioReport:
     """Measure LUFS, 4x True Peak, and splice clicks on an audio file in bounded-memory chunks."""
     resolved = Path(audio_path).resolve()
@@ -461,16 +485,17 @@ def format_broadcast_qa_warnings(
 ) -> List[str]:
     """Return human-readable warnings when headroom or splice checks fail."""
     warnings: List[str] = []
-    if report.true_peak_dbtp > true_peak_warn_dbtp:
+    if math.isfinite(report.true_peak_dbtp) and report.true_peak_dbtp > true_peak_warn_dbtp:
         warnings.append(
             f"Broadcast QA: True Peak {report.true_peak_dbtp:.2f} dBTP exceeds "
             f"{true_peak_warn_dbtp:.1f} dBTP headroom ceiling (inter-sample clipping risk)."
         )
-    if report.splice_clicks:
-        stamps = ", ".join(f"{t:.3f}s" for t in report.splice_clicks[:8])
-        suffix = f" (+{len(report.splice_clicks) - 8} more)" if len(report.splice_clicks) > 8 else ""
+    finite_clicks = [t for t in report.splice_clicks if math.isfinite(t)]
+    if finite_clicks:
+        stamps = ", ".join(f"{t:.3f}s" for t in finite_clicks[:8])
+        suffix = f" (+{len(finite_clicks) - 8} more)" if len(finite_clicks) > 8 else ""
         warnings.append(
-            f"Broadcast QA: detected {len(report.splice_clicks)} potential splice click(s) at {stamps}{suffix}."
+            f"Broadcast QA: detected {len(finite_clicks)} potential splice click(s) at {stamps}{suffix}."
         )
     return warnings
 
